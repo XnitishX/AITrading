@@ -1,0 +1,2378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AITrading – Nifty Backtester & Predictor</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg2: #1a1d29;
+            --bg3: #242736;
+            --border: #2d3148;
+            --text: #e4e6f0;
+            --text2: #8b8fa3;
+            --accent: #6366f1;
+            --accent2: #818cf8;
+            --green: #22c55e;
+            --red: #ef4444;
+            --orange: #f59e0b;
+            --blue: #3b82f6;
+        }
+        :root.light {
+            --bg: #f5f7fb;
+            --bg2: #ffffff;
+            --bg3: #eef1f6;
+            --border: #d1d5de;
+            --text: #1a1d29;
+            --text2: #5a5e72;
+            --accent: #4f46e5;
+            --accent2: #6366f1;
+            --green: #16a34a;
+            --red: #dc2626;
+            --orange: #d97706;
+            --blue: #2563eb;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ── Header ───────────────────────────── */
+        .header {
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            height: 56px;
+            gap: 32px;
+        }
+        .header .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .header .logo span { color: var(--text); }
+        .nav {
+            display: flex;
+            gap: 4px;
+            height: 100%;
+        }
+        .nav button {
+            background: none;
+            border: none;
+            color: var(--text2);
+            padding: 0 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            height: 100%;
+        }
+        .nav button:hover { color: var(--text); }
+        .nav button.active {
+            color: var(--accent2);
+            border-bottom-color: var(--accent);
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            margin-left: auto;
+        }
+        .status-text { color: var(--text2); font-size: 12px; margin-left: 6px; }
+
+        /* ── Main Layout ──────────────────────── */
+        .main {
+            display: flex;
+            height: calc(100vh - 56px);
+        }
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── Cards ────────────────────────────── */
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card h2 {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card h3 {
+            font-size: 14px;
+            color: var(--text2);
+            margin-bottom: 12px;
+        }
+
+        /* ── Grid ─────────────────────────────── */
+        .grid { display: grid; gap: 16px; }
+        .grid-2 { grid-template-columns: 1fr 1fr; }
+        .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+        /* ── Stat Cards ───────────────────────── */
+        .stat {
+            background: var(--bg3);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .stat .label {
+            font-size: 12px;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat .value {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .stat .sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+        .positive { color: var(--green); }
+        .negative { color: var(--red); }
+
+        /* ── Tables ───────────────────────────── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th {
+            text-align: left;
+            padding: 10px 12px;
+            color: var(--text2);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:hover { background: var(--bg3); }
+
+        /* ── Forms ────────────────────────────── */
+        .form-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            align-items: end;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+        }
+        .form-group label {
+            font-size: 12px;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        input, select {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+        input:focus, select:focus {
+            border-color: var(--accent);
+        }
+
+        /* ── Buttons ──────────────────────────── */
+        .btn {
+            padding: 8px 20px;
+            border-radius: 6px;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--accent2); }
+        .btn-danger {
+            background: var(--red);
+            color: white;
+        }
+        .btn-ghost {
+            background: var(--bg3);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-ghost:hover { border-color: var(--accent); }
+        .btn-sm { padding: 4px 12px; font-size: 12px; }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ── Tags/Pills ──────────────────────── */
+        .tag {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .tag-green { background: rgba(34,197,94,0.15); color: var(--green); }
+        .tag-red { background: rgba(239,68,68,0.15); color: var(--red); }
+        .tag-blue { background: rgba(59,130,246,0.15); color: var(--blue); }
+        .tag-orange { background: rgba(245,158,11,0.15); color: var(--orange); }
+
+        /* ── Charts (Canvas placeholders) ─────── */
+        .chart-container {
+            background: var(--bg3);
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 300px;
+            position: relative;
+        }
+        canvas { width: 100% !important; }
+
+        /* ── Copilot Chat ─────────────────────── */
+        .copilot-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 56px - 48px);
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .msg {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .msg-user {
+            background: var(--accent);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+        .msg-bot {
+            background: var(--bg3);
+            color: var(--text);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+        .msg-bot table { margin: 8px 0; }
+        .msg-bot h3 { margin-top: 8px; }
+        .chat-input-area {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 8px;
+        }
+        .typing-indicator {
+            color: var(--text2);
+            font-size: 13px;
+            padding: 4px 16px;
+            display: none;
+        }
+        .typing-indicator.show { display: block; }
+
+        /* ── Loading spinner ──────────────────── */
+        .spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Toast messages ───────────────────── */
+        .toast-container {
+            position: fixed;
+            top: 68px;
+            right: 24px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            animation: slideIn 0.3s ease;
+            max-width: 400px;
+        }
+        .toast-success { border-left: 3px solid var(--green); }
+        .toast-error { border-left: 3px solid var(--red); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } }
+
+        /* ── Equity Chart SVG ─────────────────── */
+        .equity-svg { width: 100%; height: 250px; }
+        .equity-svg .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+        .equity-svg .area { fill: url(#areaGrad); opacity: 0.3; }
+        .equity-svg .grid-line { stroke: var(--border); stroke-width: 0.5; }
+        .equity-svg text { fill: var(--text2); font-size: 11px; }
+
+        /* ── Responsive ───────────────────────── */
+        @media (max-width: 768px) {
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+            .form-row { flex-direction: column; }
+        }
+
+        /* ── Heatmap ──────────────────────────── */
+        .heatmap-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+        .heatmap-table th, .heatmap-table td {
+            padding: 6px 8px; text-align: center; border: 1px solid var(--border);
+            min-width: 54px; font-weight: 600;
+        }
+        .heatmap-table th { background: var(--bg3); color: var(--text2); font-size: 11px; }
+        .hm-pos { background: rgba(34,197,94,var(--hm-a)); color: #fff; }
+        .hm-neg { background: rgba(239,68,68,var(--hm-a)); color: #fff; }
+
+        /* ── Theme toggle ─────────────────────── */
+        .theme-toggle {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text);
+            cursor: pointer;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 16px;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ═══ Header & Nav ═══ -->
+<div class="header">
+    <div class="logo">📊 <span>AI</span>Trading</div>
+    <div class="nav">
+        <button class="active" onclick="switchTab('data')">Data</button>
+        <button onclick="switchTab('strategies')">Strategies</button>
+        <button onclick="switchTab('backtest')">Backtest</button>
+        <button onclick="switchTab('advanced')">Advanced</button>
+        <button onclick="switchTab('results')">Results</button>
+        <button onclick="switchTab('predict')">Predict</button>
+        <button onclick="switchTab('copilot')">🤖 Copilot</button>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="themeBtn">🌙</button>
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Connected</span>
+</div>
+
+<div class="main">
+    <div class="content">
+
+        <!-- ═══ DATA TAB ═══ -->
+        <div class="tab-panel active" id="tab-data">
+            <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 20px">
+                <div>
+                    <h2 style="margin:0">Yahoo Finance Data</h2>
+                    <p id="syncStatus" style="margin:4px 0 0;font-size:13px;color:var(--text2)">Data source: yfinance (^NSEI + ^INDIAVIX)</p>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-primary" id="btnSync" onclick="syncData()">
+                        🔄 Sync Latest Data
+                    </button>
+                    <button class="btn btn-ghost" id="btnFullDownload" onclick="fullDownload()">
+                        ⬇ Full Re-download
+                    </button>
+                </div>
+            </div>
+            <div class="grid grid-4" id="dataStats"></div>
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+                    <h2 style="margin:0">📈 Price Chart</h2>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <label style="font-size:12px;color:var(--text2)">Type:</label>
+                        <select id="chartTypeSelect" onchange="reloadPriceChart()" style="font-size:12px;padding:4px 8px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:6px">
+                            <option value="line" selected>Line</option>
+                            <option value="candlestick">Candlestick</option>
+                        </select>
+                        <label style="font-size:12px;color:var(--text2)">Period:</label>
+                        <select id="chartPeriodSelect" onchange="reloadPriceChart()" style="font-size:12px;padding:4px 8px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:6px">
+                            <option value="daily" selected>Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="chart-container" id="priceChartContainer">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h2>📋 Recent Data</h2>
+                <div style="overflow-x:auto" id="dataPreview">
+                    <p style="color:var(--text2)">Loading…</p>
+                </div>
+            </div>
+            <div class="grid grid-2">
+                <div class="card">
+                    <h2>📅 Monthly Return Heatmap (%)</h2>
+                    <div style="overflow-x:auto" id="heatmapContainer">
+                        <p style="color:var(--text2)">Loading…</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>🔍 Data Quality</h2>
+                    <div id="dataQualityContainer">
+                        <p style="color:var(--text2)">Loading…</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ STRATEGIES TAB ═══ -->
+        <div class="tab-panel" id="tab-strategies">
+            <!-- Strategy Detail View (hidden initially) -->
+            <div id="strategyDetailView" style="display:none">
+                <div style="margin-bottom:16px">
+                    <button class="btn btn-ghost" onclick="closeStrategyDetail()">← Back to Strategies</button>
+                </div>
+                <div class="card">
+                    <h2 id="stratDetailTitle">Strategy Details</h2>
+                    <div class="grid grid-3" style="margin-bottom:16px" id="stratDetailInfo"></div>
+                </div>
+                <div id="stratDetailSpinner" style="text-align:center;padding:40px">
+                    <span class="spinner"></span> Running backtest with ₹10,00,000 capital…
+                </div>
+                <div id="stratDetailResults" style="display:none">
+                    <div class="grid grid-4" id="stratDetailStats"></div>
+                    <div class="card">
+                        <h2>📈 Equity Curve</h2>
+                        <div class="chart-container">
+                            <canvas id="stratDetailEquityChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>📊 Performance Metrics</h2>
+                        <div id="stratDetailMetrics"></div>
+                    </div>
+                    <div class="card">
+                        <h2>📋 Trade Log</h2>
+                        <div style="overflow-x:auto;max-height:400px;overflow-y:auto" id="stratDetailTrades"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Strategy List View -->
+            <div id="strategyListView">
+            <div class="card">
+                <h2>➕ Create New Strategy</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input id="stratName" placeholder="My Strategy">
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="stratType" onchange="updateParamFields()">
+                            <optgroup label="Trend Following">
+                                <option value="sma_crossover">📈 SMA Crossover (Golden Cross)</option>
+                                <option value="macd_crossover">📈 MACD Crossover</option>
+                            </optgroup>
+                            <optgroup label="Mean Reversion">
+                                <option value="rsi_mean_reversion">🔄 RSI Mean Reversion</option>
+                                <option value="bollinger_band">🔄 Bollinger Bands</option>
+                            </optgroup>
+                            <optgroup label="Volatility-Based">
+                                <option value="atr_breakout">💥 ATR Breakout</option>
+                                <option value="vix_regime">🌡️ VIX Regime</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row" id="paramFields" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-items:end">
+                    <div class="form-group">
+                        <label>Fast Window</label>
+                        <input id="param1" type="number" value="10">
+                    </div>
+                    <div class="form-group">
+                        <label>Slow Window</label>
+                        <input id="param2" type="number" value="50">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input id="stratDesc" placeholder="Optional description…">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="createStrategy()">Create Strategy</button>
+            </div>
+            <div class="card">
+                <h2>📋 Saved Strategies <span style="font-size:12px;color:var(--text2);font-weight:400">(click a strategy to view backtest results)</span></h2>
+                <div id="strategyList"><p style="color:var(--text2)">Loading…</p></div>
+            </div>
+            </div><!-- end strategyListView -->
+        </div>
+
+        <!-- ═══ BACKTEST TAB ═══ -->
+        <div class="tab-panel" id="tab-backtest">
+            <div class="card">
+                <h2>⚡ Run Backtest</h2>
+                
+                <!-- Strategy Selector -->
+                <div id="btCustomStrategyPanel">
+                    <div class="form-row">
+                        <div class="form-group" style="flex:2">
+                            <label>Strategy Type</label>
+                            <select id="btStrategyType" onchange="updateStrategyParams()">
+                                <!-- Dynamically populated from registry -->
+                            </select>
+                            <div id="strategyDesc" style="font-size:12px; color:var(--text2); margin-top:4px;"></div>
+                        </div>
+                    </div>
+                    <div id="btParamsContainer" class="grid grid-4" style="margin-top: 12px; margin-bottom: 12px;"></div>
+                </div>
+
+                <!-- Capital & Position Sizing -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Initial Capital (₹)</label>
+                        <input id="btCapital" type="number" value="1000000">
+                    </div>
+                    <div class="form-group">
+                        <label>Position Size %</label>
+                        <input id="btPositionSize" type="number" value="10" min="1" max="100" step="1" title="Percentage of capital per trade">
+                    </div>
+                    <div class="form-group">
+                        <label>Commission % <span title="Brokerage commission per trade" style="cursor:help;">ⓘ</span></label>
+                        <input id="btCommission" type="number" value="0.02" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Slippage % <span title="Price slippage per trade" style="cursor:help;">ⓘ</span></label>
+                        <input id="btSlippage" type="number" value="0.01" step="0.01">
+                    </div>
+                </div>
+
+                <!-- Risk Management -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Stop Loss %</label>
+                        <input id="btStopLoss" type="number" value="2" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Take Profit %</label>
+                        <input id="btTakeProfit" type="number" value="4" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>Trailing Stop % <span title="Dynamic stop loss that trails peak profit (0 to disable)" style="cursor:help;">ⓘ</span></label>
+                        <input id="btTrailingStop" type="number" value="0" step="0.5">
+                    </div>
+                </div>
+
+                <!-- Advanced Options -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max Hold Bars <span title="Max days to hold a position before auto-exit (0 for unlimited)" style="cursor:help;">ⓘ</span></label>
+                        <input id="btMaxHold" type="number" value="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Cooldown Bars <span title="Days to wait after an exit before entering again (0 to disable)" style="cursor:help;">ⓘ</span></label>
+                        <input id="btCooldown" type="number" value="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input id="btStartDate" type="date" value="2008-04-01">
+                    </div>
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input id="btEndDate" type="date">
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="btnRunBacktest" onclick="runBacktest()">
+                    ▶ Run Backtest
+                </button>
+                <span id="btSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
+            </div>
+            <div id="btResultPanel" style="display:none">
+                <div class="grid grid-4" id="btStats"></div>
+                <div class="card">
+                    <h2>📈 Equity Curve</h2>
+                    <div class="chart-container">
+                        <canvas id="equityChart"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>📋 Trade Log</h2>
+                    <div style="overflow-x:auto;max-height:400px;overflow-y:auto" id="tradeLog"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ ADVANCED TAB ═══ -->
+        <div class="tab-panel" id="tab-advanced">
+            <!-- Walk-Forward Analysis -->
+            <div class="card">
+                <h2>🔬 Walk-Forward Analysis</h2>
+                <p style="color:var(--text2);font-size:13px;margin-bottom:12px">Split data into sequential folds, train on each fold's first portion, test on the rest. Detects overfitting.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Strategy Type</label>
+                        <select id="wfStratType" onchange="updateWFParams()">
+                            <option value="sma_crossover">SMA Crossover</option>
+                            <option value="ema_crossover">EMA Crossover</option>
+                            <option value="rsi_mean_reversion">RSI Mean Reversion</option>
+                            <option value="macd_crossover">MACD Crossover</option>
+                            <option value="bollinger_band">Bollinger Bands</option>
+                            <option value="atr_breakout">ATR Breakout</option>
+                            <option value="vix_regime">VIX Regime</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Folds</label>
+                        <input id="wfSplits" type="number" value="5" min="2" max="20">
+                    </div>
+                    <div class="form-group">
+                        <label>Train %</label>
+                        <input id="wfTrainPct" type="number" value="70" min="50" max="90" step="5">
+                    </div>
+                </div>
+                <div id="wfParamsContainer" class="form-row"></div>
+                <button class="btn btn-primary" id="btnWF" onclick="runWalkForward()">▶ Run Walk-Forward</button>
+                <span id="wfSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
+                <div id="wfResults" style="margin-top:16px"></div>
+            </div>
+            <!-- Monte Carlo -->
+            <div class="card">
+                <h2>🎲 Monte Carlo Trade Resampling</h2>
+                <p style="color:var(--text2);font-size:13px;margin-bottom:12px">Bootstrap resample trades from a completed backtest to estimate confidence intervals on metrics.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Run ID</label>
+                        <input id="mcRunId" type="number" placeholder="Enter backtest run ID">
+                    </div>
+                    <div class="form-group">
+                        <label>Simulations</label>
+                        <input id="mcSims" type="number" value="1000" min="100" max="50000">
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="btnMC" onclick="runMonteCarlo()">▶ Run Monte Carlo</button>
+                <span id="mcSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
+                <div id="mcResults" style="margin-top:16px"></div>
+            </div>
+            <!-- Parameter Sweep -->
+            <div class="card">
+                <h2>📐 Parameter Sensitivity Sweep</h2>
+                <p style="color:var(--text2);font-size:13px;margin-bottom:12px">Vary one parameter to find robust regions (flat plateaus = robust).</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Strategy Type</label>
+                        <select id="swStratType">
+                            <option value="sma_crossover">SMA Crossover</option>
+                            <option value="ema_crossover">EMA Crossover</option>
+                            <option value="rsi_mean_reversion">RSI Mean Reversion</option>
+                            <option value="bollinger_band">Bollinger Bands</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Parameter Name</label>
+                        <input id="swParamName" type="text" value="fast_window" placeholder="e.g. fast_window">
+                    </div>
+                    <div class="form-group">
+                        <label>Values (comma-separated)</label>
+                        <input id="swParamValues" type="text" value="10,20,30,40,50,75,100" placeholder="e.g. 10,20,30,50">
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="btnSW" onclick="runSweep()">▶ Run Sweep</button>
+                <span id="swSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
+                <div id="swResults" style="margin-top:16px"></div>
+            </div>
+            <!-- Correlation Matrix -->
+            <div class="card">
+                <h2>🔗 Strategy Correlation Matrix</h2>
+                <p style="color:var(--text2);font-size:13px;margin-bottom:12px">Compare daily return correlations across strategies. Low correlation = good diversification.</p>
+                <button class="btn btn-primary" id="btnCorr" onclick="runCorrelation()">▶ Compute Correlations (All Default Strategies)</button>
+                <span id="corrSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
+                <div id="corrResults" style="margin-top:16px"></div>
+            </div>
+        </div>
+
+        <!-- ═══ RESULTS TAB ═══ -->
+        <div class="tab-panel" id="tab-results">
+            <div class="card">
+                <h2>🏆 All Backtest Runs</h2>
+                <div style="margin-bottom:12px;display:flex;gap:8px">
+                    <button class="btn btn-sm btn-danger" onclick="deleteAllRuns()">🗑 Clear All Runs</button>
+                </div>
+                <div style="overflow-x:auto" id="allResults">
+                    <p style="color:var(--text2)">Loading…</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PREDICT TAB ═══ -->
+        <div class="tab-panel" id="tab-predict">
+            <div class="card">
+                <h2>🔮 Probability Predictions</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Method</label>
+                        <select id="predMethod">
+                            <option value="ensemble" selected>Ensemble (all methods)</option>
+                            <option value="empirical">Empirical Distribution</option>
+                            <option value="monte_carlo">Monte Carlo (GBM)</option>
+                            <option value="regime">VIX Regime Conditioned</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Simulations</label>
+                        <input id="predSims" type="number" value="10000">
+                    </div>
+                    <div class="form-group" style="display:flex;gap:8px;align-items:end">
+                        <button class="btn btn-primary" id="btnPredict" onclick="runPrediction()">
+                            🔮 Run Prediction
+                        </button>
+                        <button class="btn btn-ghost" id="btnAccuracy" onclick="runAccuracyBacktest()">
+                            🎯 Test Accuracy
+                        </button>
+                    </div>
+                </div>
+                <span id="predSpinner" style="display:none"><span class="spinner"></span> Calculating…</span>
+            </div>
+            <div id="predResultPanel" style="display:none">
+                <div class="grid grid-3" id="predCurrentStats"></div>
+                <div class="card">
+                    <h2>📊 Horizon Forecasts</h2>
+                    <div id="predHorizons"></div>
+                </div>
+                <div class="card">
+                    <h2>🕯️ Projected Candlestick Charts</h2>
+                    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Monte Carlo OHLC projections — candles show median open/close, P25–P75 range. Whiskers show 5th–95th percentile.</p>
+                    <div id="projectionCandles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px"></div>
+                </div>
+            </div>
+            <div id="accuracyPanel" style="display:none">
+                <div class="card">
+                    <h2>🎯 Prediction Accuracy (Historical Backtest)</h2>
+                    <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Walk-forward backtest — predictions were made every 5 trading days over the last year and compared against actual outcomes.</p>
+                    <div class="grid grid-3" id="accuracyCards"></div>
+                    <div id="accuracyDetails" style="margin-top:16px"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ COPILOT TAB ═══ -->
+        <div class="tab-panel" id="tab-copilot">
+            <div class="copilot-container">
+                <div id="llmStatusBanner" style="display:none; padding:8px 12px; margin-bottom:8px; border-radius:6px; font-size:0.85em;"></div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="msg msg-bot">
+                        <strong>🤖 AITrading Copilot</strong><br><br>
+                        Hi! I can help you create strategies, run backtests, and analyze results.<br><br>
+                        <strong>Quick commands:</strong><br>
+                        • <em>"List all strategies"</em><br>
+                        • <em>"Create SMA crossover 15/60"</em><br>
+                        • <em>"Backtest all strategies"</em><br>
+                        • <em>"Show me the data"</em><br>
+                        • <em>"Help"</em><br><br>
+                        <strong>🧠 Natural Language (LLM-powered):</strong><br>
+                        • <em>"Run a 20/100 SMA backtest with 3% stop loss on 2022 data"</em><br>
+                        • <em>"Compare RSI and Bollinger band strategies"</em><br>
+                        • <em>"Which strategy had the best Sharpe ratio?"</em><br>
+                        • <em>"Test MACD with fast 8, slow 21, signal 5"</em><br><br>
+                        <strong>📅 Event Analysis (60+ curated events):</strong><br>
+                        • <em>"How does the market perform during wars?"</em><br>
+                        • <em>"What's the probability of a drop during oil shocks?"</em><br>
+                        • <em>"Analyze market during financial crises"</em><br>
+                        • <em>"Market behaviour during RBI policy changes"</em><br>
+                        • <em>"How did Nifty react to elections?"</em><br>
+                        • <em>"List all events"</em>
+                    </div>
+                </div>
+                <div class="typing-indicator" id="typingIndicator">🤖 Copilot is thinking…</div>
+                <div class="chat-input-area">
+                    <input id="chatInput" placeholder="Ask Copilot anything in natural language…" onkeydown="if(event.key==='Enter')sendChat()">
+                    <button class="btn btn-primary" onclick="sendChat()">Send</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<!-- ═══ CHART.JS (lightweight charts) ═══ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+<!-- ═══ Marked.js (markdown for copilot) ═══ -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+// ───── State ────────────────────────────────────────────
+let copilotSessionId = null;
+let priceChartInstance = null;
+let equityChartInstance = null;
+let projectionChartInstances = {};  // horizon → Chart instance
+
+// ───── Tab Switching ────────────────────────────────────
+function switchTab(tab) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    event.target.classList.add('active');
+
+    // Lazy load data per tab
+    if (tab === 'data') loadDataTab();
+    if (tab === 'strategies') loadStrategies();
+    if (tab === 'backtest') loadBacktestStrategies();
+    if (tab === 'advanced') { updateWFParams(); }
+    if (tab === 'results') loadResults();
+}
+
+// ───── Toast Notifications ──────────────────────────────
+function toast(msg, type='success') {
+    const c = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
+// ───── API Helper ───────────────────────────────────────
+async function api(url, options = {}) {
+    try {
+        const resp = await fetch(url, {
+            headers: { 'Content-Type': 'application/json', ...options.headers },
+            ...options,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({detail: resp.statusText}));
+            throw new Error(err.detail || 'Request failed');
+        }
+        return await resp.json();
+    } catch (e) {
+        toast(e.message, 'error');
+        throw e;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATA TAB
+// ═══════════════════════════════════════════════════════════
+async function loadDataTab() {
+    try {
+        const [summary, chart, preview] = await Promise.all([
+            api('/api/data/summary'),
+            api('/api/data/chart'),
+            api('/api/data/preview?rows=50'),
+        ]);
+        renderDataStats(summary);
+        renderPriceChart(chart);
+        renderDataPreview(preview);
+        document.getElementById('syncStatus').textContent =
+            `Data source: yfinance • ${summary.date_start} → ${summary.date_end} • ${summary.rows.toLocaleString()} rows`;
+        // Load heatmap and quality checks in parallel
+        loadHeatmap();
+        loadDataQuality();
+    } catch (e) {
+        document.getElementById('dataStats').innerHTML =
+            '<div class="card" style="grid-column:1/-1"><p>⚠️ No data yet. Click <strong>Full Re-download</strong> to fetch data from Yahoo Finance, or run <code>python main.py download</code>.</p></div>';
+    }
+}
+
+async function reloadPriceChart() {
+    const period = document.getElementById('chartPeriodSelect').value;
+    try {
+        const data = await api(`/api/data/candles?period=${period}`);
+        renderPriceChart(data);
+    } catch (e) { /* toast shown by api helper */ }
+}
+
+async function syncData() {
+    const btn = document.getElementById('btnSync');
+    const status = document.getElementById('syncStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle"></span> Syncing…';
+    status.textContent = 'Fetching new data from Yahoo Finance…';
+    try {
+        const r = await api('/api/data/sync', { method: 'POST' });
+        const nRows = (r.nifty?.rows_added || 0) + (r.vix?.rows_added || 0);
+        toast(`✅ Sync complete! +${nRows} new rows. Data through ${r.date_end}`);
+        status.textContent = `Last sync: ${new Date().toLocaleString()} • ${r.date_start} → ${r.date_end} • ${r.master_rows.toLocaleString()} rows`;
+        // Reload charts
+        await loadDataTab();
+    } catch (e) {
+        toast('❌ Sync failed: ' + (e.message || e));
+        status.textContent = 'Sync failed – check console for details';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🔄 Sync Latest Data';
+    }
+}
+
+async function fullDownload() {
+    if (!confirm('This will re-download ALL data from Yahoo Finance (Nifty 50 + India VIX full history). Continue?')) return;
+    const btn = document.getElementById('btnFullDownload');
+    const status = document.getElementById('syncStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle"></span> Downloading…';
+    status.textContent = 'Downloading full history from Yahoo Finance… this may take a minute.';
+    try {
+        const r = await api('/api/data/download', { method: 'POST' });
+        toast(`✅ Download complete! ${r.master_rows.toLocaleString()} rows. ${r.date_start} → ${r.date_end}`);
+        status.textContent = `Full download: ${new Date().toLocaleString()} • ${r.date_start} → ${r.date_end} • ${r.master_rows.toLocaleString()} rows`;
+        await loadDataTab();
+    } catch (e) {
+        toast('❌ Download failed: ' + (e.message || e));
+        status.textContent = 'Download failed – check console for details';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '⬇ Full Re-download';
+    }
+}
+
+function renderDataStats(s) {
+    document.getElementById('dataStats').innerHTML = `
+        <div class="stat"><div class="label">Data Points</div><div class="value">${s.rows.toLocaleString()}</div><div class="sub">${s.date_start} → ${s.date_end}</div></div>
+        <div class="stat"><div class="label">Last Close</div><div class="value">₹${s.nifty_last.toLocaleString()}</div><div class="sub">Nifty 50</div></div>
+        <div class="stat"><div class="label">All-time High</div><div class="value">₹${s.nifty_max.toLocaleString()}</div></div>
+        <div class="stat"><div class="label">VIX</div><div class="value">${s.has_vix ? s.vix_last || 'N/A' : 'N/A'}</div><div class="sub">${s.has_vix ? 'Available' : 'Not available'}</div></div>
+    `;
+}
+
+function renderPriceChart(data) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    if (priceChartInstance) priceChartInstance.destroy();
+
+    const chartType = document.getElementById('chartTypeSelect').value;
+    const hasVix = data.some(d => d.vix_close != null);
+
+    if (chartType === 'candlestick') {
+        // Financial candlestick chart
+        const ohlcData = data.filter(d => d.Open != null && d.High != null && d.Low != null && d.Close != null).map(d => ({
+            x: new Date(d.Date).getTime(),
+            o: d.Open, h: d.High, l: d.Low, c: d.Close,
+        }));
+        const datasets = [{
+            label: 'Nifty 50',
+            data: ohlcData,
+            color: { up: '#22c55e', down: '#ef4444', unchanged: '#8b8fa3' },
+            borderColor: { up: '#22c55e', down: '#ef4444', unchanged: '#8b8fa3' },
+        }];
+        priceChartInstance = new Chart(ctx, {
+            type: 'candlestick',
+            data: { datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(c) {
+                                const d = c.raw;
+                                return [`O: ₹${d.o.toLocaleString()}`, `H: ₹${d.h.toLocaleString()}`, `L: ₹${d.l.toLocaleString()}`, `C: ₹${d.c.toLocaleString()}`];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { type: 'timeseries', time: { unit: 'month' }, ticks: { maxTicksLimit: 12, color: '#8b8fa3' }, grid: { color: '#2d3148' } },
+                    y: { ticks: { color: '#8b8fa3', callback: v => '₹' + v.toLocaleString() }, grid: { color: '#2d3148' } },
+                },
+            },
+        });
+        return;
+    }
+
+    // Default: line chart
+    const datasets = [{
+        label: 'Nifty 50 Close',
+        data: data.map(d => d.Close),
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.1)',
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.1,
+        yAxisID: 'yNifty',
+    }];
+
+    if (hasVix) {
+        datasets.push({
+            label: 'India VIX',
+            data: data.map(d => d.vix_close),
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245,158,11,0.08)',
+            fill: true,
+            borderWidth: 1.2,
+            pointRadius: 0,
+            tension: 0.1,
+            yAxisID: 'yVix',
+            borderDash: [4, 2],
+        });
+    }
+
+    const scales = {
+        x: { display: true, ticks: { maxTicksLimit: 10, color: '#8b8fa3' }, grid: { color: '#2d3148' } },
+        yNifty: {
+            type: 'linear', position: 'left', display: true,
+            ticks: { color: '#8b8fa3', callback: v => '₹' + v.toLocaleString() },
+            grid: { color: '#2d3148' },
+            title: { display: true, text: 'Nifty 50', color: '#6366f1', font: { size: 12 } },
+        },
+    };
+    if (hasVix) {
+        scales.yVix = {
+            type: 'linear', position: 'right', display: true,
+            ticks: { color: '#f59e0b' },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'India VIX', color: '#f59e0b', font: { size: 12 } },
+        };
+    }
+
+    priceChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels: data.map(d => d.Date), datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: hasVix, labels: { color: '#e4e6f0', usePointStyle: true, pointStyle: 'line' } },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    callbacks: {
+                        label: function(ctx) {
+                            if (ctx.dataset.yAxisID === 'yNifty') return 'Nifty: ₹' + ctx.parsed.y.toLocaleString();
+                            return 'VIX: ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : 'N/A');
+                        }
+                    }
+                }
+            },
+            scales,
+            interaction: { intersect: false, mode: 'index' },
+        },
+    });
+}
+
+function renderDataPreview(data) {
+    if (!data.length) { document.getElementById('dataPreview').innerHTML = '<p>No data</p>'; return; }
+    const cols = Object.keys(data[0]);
+    let html = '<table><thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    data.forEach(row => {
+        html += '<tr>' + cols.map(c => {
+            let v = row[c];
+            if (typeof v === 'number') v = v.toLocaleString(undefined, {maximumFractionDigits: 2});
+            return `<td>${v ?? ''}</td>`;
+        }).join('') + '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('dataPreview').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// STRATEGIES TAB
+// ═══════════════════════════════════════════════════════════
+const PARAM_CONFIG = {
+    sma_crossover: [
+        { key: 'fast_window', label: 'Fast SMA (days)', default: 50,
+          options: [10,20,30,40,50,60,75,100],
+          hint: 'Short-term trend — standard: 50 (Investopedia)' },
+        { key: 'slow_window', label: 'Slow SMA (days)', default: 200,
+          options: [50,100,126,150,200,252],
+          hint: 'Long-term trend — standard: 200 (Golden Cross)' },
+    ],
+    rsi_mean_reversion: [
+        { key: 'oversold', label: 'Oversold Threshold', default: 30,
+          options: [15,20,25,30,35,40],
+          hint: 'RSI below → buy — standard: 30 (Wilder, 1978)' },
+        { key: 'overbought', label: 'Overbought Threshold', default: 70,
+          options: [60,65,70,75,80,85],
+          hint: 'RSI above → sell — standard: 70 (Wilder, 1978)' },
+    ],
+    macd_crossover: [
+        { key: 'fast_ema', label: 'Fast EMA', default: 12,
+          options: [6,8,10,12,15,20],
+          hint: 'Standard: 12 (Gerald Appel)' },
+        { key: 'slow_ema', label: 'Slow EMA', default: 26,
+          options: [18,20,24,26,30,35],
+          hint: 'Standard: 26 (Gerald Appel)' },
+        { key: 'signal_period', label: 'Signal Period', default: 9,
+          options: [5,7,9,12,14],
+          hint: 'Standard: 9 (traditional 12/26/9)' },
+    ],
+    bollinger_band: [
+        { key: 'window', label: 'Bollinger Window', default: 20,
+          options: [10,14,20,30,50],
+          hint: 'Standard: 20-day SMA (John Bollinger)' },
+        { key: 'num_std', label: 'Std Deviations (σ)', default: 2.0,
+          options: [1.0,1.5,2.0,2.5,3.0],
+          hint: 'Standard: 2σ (Bollinger)' },
+    ],
+    atr_breakout: [
+        { key: 'sma_window', label: 'SMA Window', default: 20,
+          options: [10,14,20,30,50],
+          hint: 'Midline moving average' },
+        { key: 'atr_period', label: 'ATR Period', default: 14,
+          options: [7,10,14,20,30],
+          hint: 'Standard: 14-day (Wilder)' },
+        { key: 'atr_multiplier', label: 'ATR Multiplier', default: 1.5,
+          options: [1.0,1.25,1.5,2.0,2.5,3.0],
+          hint: 'Breakout = SMA ± N × ATR' },
+    ],
+    vix_regime: [
+        { key: 'buy_below', label: 'Buy Below VIX', default: 15,
+          options: [10,12,14,15,16,18,20],
+          hint: 'India VIX mean ≈ 19.8; calm < 15' },
+        { key: 'sell_above', label: 'Sell Above VIX', default: 25,
+          options: [20,22,25,28,30,35,40],
+          hint: 'Fear threshold; high > 25' },
+    ],
+};
+
+// Strategy descriptions — sourced from Investopedia / original authors
+const STRATEGY_DESCRIPTIONS = {
+    sma_crossover: 'Golden Cross / Death Cross — 50-day vs 200-day SMA crossover, the most widely followed trend signal (Investopedia).',
+    rsi_mean_reversion: '14-period RSI by J. Welles Wilder (1978). Buy below 30 (oversold), sell above 70 (overbought).',
+    macd_crossover: 'MACD by Gerald Appel — 12/26/9 traditional settings. Trade on signal-line crossover (Investopedia).',
+    bollinger_band: '20-day SMA ± 2σ by John Bollinger. Buy at lower band (oversold), sell at upper band (overbought).',
+    atr_breakout: 'Breakout above/below SMA ± N × ATR (14-day, Wilder). Adapts to current volatility.',
+    vix_regime: 'India VIX regime filter. Go long in calm markets (VIX < 15), exit in fearful markets (VIX > 25).',
+};
+
+function updateParamFields() {
+    const type = document.getElementById('stratType').value;
+    const config = PARAM_CONFIG[type] || [];
+    const container = document.getElementById('paramFields');
+    // Show strategy description
+    let descHtml = STRATEGY_DESCRIPTIONS[type] ? `<div style="grid-column:1/-1;color:var(--text2);font-size:12px;margin-bottom:4px;padding:8px 12px;background:rgba(99,102,241,.08);border-radius:8px">💡 ${STRATEGY_DESCRIPTIONS[type]}</div>` : '';
+    // Build param fields with dropdowns
+    container.innerHTML = descHtml + config.map((p, i) => {
+        if (p.options && p.options.length) {
+            const opts = p.options.map(o => {
+                const displayVal = p.type === 'pct' ? o + '%' : o;
+                const selected = o == p.default ? 'selected' : '';
+                return `<option value="${o}" ${selected}>${displayVal}</option>`;
+            }).join('');
+            return `<div class="form-group">
+                <label>${p.label} ${p.hint ? '<span style="font-size:10px;color:var(--text2);display:block">'+p.hint+'</span>' : ''}</label>
+                <select id="param${i+1}">${opts}</select>
+            </div>`;
+        }
+        return `<div class="form-group">
+            <label>${p.label}</label>
+            <input id="param${i+1}" type="number" value="${p.default}" step="any">
+        </div>`;
+    }).join('');
+}
+
+async function createStrategy() {
+    const type = document.getElementById('stratType').value;
+    const config = PARAM_CONFIG[type] || [];
+    const params = {};
+    config.forEach((p, i) => {
+        let val = parseFloat(document.getElementById(`param${i+1}`).value);
+        // Convert percentage fields to decimal for the backend
+        if (p.type === 'pct') val = val / 100;
+        params[p.key] = val;
+    });
+    // Build a readable display name from the type and key params
+    const displayParams = config.map((p, i) => {
+        const raw = document.getElementById(`param${i+1}`).value;
+        return p.type === 'pct' ? raw + '%' : raw;
+    }).join('/');
+    const name = document.getElementById('stratName').value || `${type.replace(/_/g,' ')} (${displayParams})`;
+    const desc = document.getElementById('stratDesc').value || STRATEGY_DESCRIPTIONS[type] || '';
+
+    await api('/api/strategies', {
+        method: 'POST',
+        body: JSON.stringify({ name, type, params, description: desc }),
+    });
+    toast(`Strategy "${name}" created!`);
+    loadStrategies();
+}
+
+async function loadStrategies() {
+    const strategies = await api('/api/strategies');
+    const el = document.getElementById('strategyList');
+    if (!strategies.length) { el.innerHTML = '<p style="color:var(--text2)">No strategies yet.</p>'; return; }
+
+    let html = '<table><thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Parameters</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+    strategies.forEach(s => {
+        const params = typeof s.params === 'string' ? JSON.parse(s.params) : s.params;
+        const pStr = Object.entries(params).map(([k,v]) => `${k}=${v}`).join(', ');
+        const status = s.is_active ? '<span class="tag tag-green">Active</span>' : '<span class="tag tag-red">Inactive</span>';
+        html += `<tr style="cursor:pointer" onclick="openStrategyDetail(${s.id})">
+            <td>${s.id}</td>
+            <td><strong style="color:var(--accent2)">${s.name}</strong></td>
+            <td><span class="tag tag-blue">${s.type}</span></td>
+            <td>${pStr}</td>
+            <td>${status}</td>
+            <td>
+                <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();openStrategyDetail(${s.id})" style="margin-right:4px">▶ Backtest</button>
+                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteStrategy(${s.id})">Delete</button>
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+async function deleteStrategy(id) {
+    if (!confirm('Delete this strategy?')) return;
+    await api(`/api/strategies/${id}`, { method: 'DELETE' });
+    toast('Strategy deleted');
+    loadStrategies();
+}
+
+// ═══════════════════════════════════════════════════════════
+// STRATEGY DETAIL VIEW (backtest on click)
+// ═══════════════════════════════════════════════════════════
+let stratDetailChartInstance = null;
+
+async function openStrategyDetail(strategyId) {
+    // Toggle views
+    document.getElementById('strategyListView').style.display = 'none';
+    document.getElementById('strategyDetailView').style.display = 'block';
+    document.getElementById('stratDetailSpinner').style.display = 'block';
+    document.getElementById('stratDetailResults').style.display = 'none';
+
+    // Load strategy info
+    const strat = await api(`/api/strategies/${strategyId}`);
+    const params = typeof strat.params === 'string' ? JSON.parse(strat.params) : strat.params;
+    const pStr = Object.entries(params).map(([k,v]) => `<span class="tag tag-blue" style="margin-right:4px">${k}: ${v}</span>`).join(' ');
+
+    document.getElementById('stratDetailTitle').innerHTML = `📊 ${strat.name}`;
+    document.getElementById('stratDetailInfo').innerHTML = `
+        <div class="stat"><div class="label">Type</div><div class="value" style="font-size:16px">${strat.type.replace(/_/g,' ')}</div></div>
+        <div class="stat"><div class="label">Parameters</div><div class="value" style="font-size:14px">${pStr}</div></div>
+        <div class="stat"><div class="label">Description</div><div class="value" style="font-size:13px;color:var(--text2)">${strat.description || 'No description'}</div></div>
+    `;
+
+    // Run backtest with 10 lakh capital
+    try {
+        // Extract stop_loss_pct & take_profit_pct from params if they exist (from sweep), else defaults
+        const sl = params.stop_loss_pct || 2;
+        const tp = params.take_profit_pct || 4;
+
+        const result = await api('/api/backtest', {
+            method: 'POST',
+            body: JSON.stringify({
+                strategy_id: strategyId,
+                initial_capital: 1000000,
+                stop_loss_pct: sl,
+                take_profit_pct: tp,
+                start_date: null,
+                end_date: null,
+            }),
+        });
+        renderStrategyDetailResult(result);
+        toast(`Backtest complete for ${strat.name}`);
+    } catch(e) {
+        document.getElementById('stratDetailSpinner').innerHTML =
+            `<p style="color:var(--red)">⚠️ Backtest failed: ${e.message}</p>`;
+    }
+}
+
+function closeStrategyDetail() {
+    document.getElementById('strategyDetailView').style.display = 'none';
+    document.getElementById('strategyListView').style.display = 'block';
+}
+
+function renderStrategyDetailResult(r) {
+    document.getElementById('stratDetailSpinner').style.display = 'none';
+    document.getElementById('stratDetailResults').style.display = 'block';
+
+    const retClass = r.total_return_pct >= 0 ? 'positive' : 'negative';
+    const fc = r.final_capital || 0;
+    const ic = r.initial_capital || 1000000;
+    const pnl = fc - ic;
+    const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+
+    document.getElementById('stratDetailStats').innerHTML = `
+        <div class="stat"><div class="label">Initial Capital</div><div class="value">₹${ic.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div class="sub">₹10,00,000</div></div>
+        <div class="stat"><div class="label">Final Capital</div><div class="value ${retClass}">₹${fc.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div class="sub ${pnlClass}">${pnl>=0?'+':''}₹${pnl.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct>=0?'+':''}${r.total_return_pct.toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Annual Return</div><div class="value ${r.annual_return_pct>=0?'positive':'negative'}">${r.annual_return_pct>=0?'+':''}${(r.annual_return_pct||0).toFixed(2)}%</div></div>
+    `;
+
+    // Full metrics table
+    document.getElementById('stratDetailMetrics').innerHTML = `
+        <div class="grid grid-4" style="margin-bottom:12px">
+            <div class="stat"><div class="label">Sharpe Ratio</div><div class="value">${(r.sharpe_ratio||0).toFixed(2)}</div></div>
+            <div class="stat"><div class="label">Max Drawdown</div><div class="value negative">${(r.max_drawdown_pct||0).toFixed(2)}%</div></div>
+            <div class="stat"><div class="label">Profit Factor</div><div class="value">${(r.profit_factor||0).toFixed(2)}</div></div>
+            <div class="stat"><div class="label">Avg Trade PnL</div><div class="value">₹${(r.avg_trade_pnl||0).toFixed(2)}</div></div>
+        </div>
+        <div class="grid grid-4">
+            <div class="stat"><div class="label">Total Trades</div><div class="value">${r.total_trades||0}</div></div>
+            <div class="stat"><div class="label">Winning Trades</div><div class="value positive">${r.winning_trades||0}</div></div>
+            <div class="stat"><div class="label">Losing Trades</div><div class="value negative">${r.losing_trades||0}</div></div>
+            <div class="stat"><div class="label">Win Rate</div><div class="value">${(r.win_rate_pct||0).toFixed(1)}%</div></div>
+        </div>
+        <div style="margin-top:12px;padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">
+            Data range: ${r.data_start || 'N/A'} → ${r.data_end || 'N/A'} &nbsp;|&nbsp; Run ID: #${r.run_id}
+        </div>
+    `;
+
+    // Equity chart
+    if (r.equity_curve && r.equity_curve.length) {
+        const ctx = document.getElementById('stratDetailEquityChart').getContext('2d');
+        if (stratDetailChartInstance) stratDetailChartInstance.destroy();
+        stratDetailChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: r.equity_curve.map(e => e.Date),
+                datasets: [{
+                    label: 'Portfolio Value (₹)',
+                    data: r.equity_curve.map(e => e.equity),
+                    borderColor: r.total_return_pct >= 0 ? '#22c55e' : '#ef4444',
+                    backgroundColor: r.total_return_pct >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                    fill: true,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => '₹' + ctx.parsed.y.toLocaleString(undefined,{maximumFractionDigits:0})
+                        }
+                    },
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8, color: '#8b8fa3' }, grid: { color: '#2d3148' } },
+                    y: {
+                        ticks: { color: '#8b8fa3', callback: v => '₹' + (v>=100000 ? (v/100000).toFixed(1)+'L' : v.toLocaleString()) },
+                        grid: { color: '#2d3148' },
+                    },
+                },
+            },
+        });
+    }
+
+    // Trades table
+    if (r.trades && r.trades.length) {
+        let html = `<div style="margin-bottom:8px;color:var(--text2);font-size:13px">Showing last ${Math.min(r.trades.length,100)} of ${r.trades.length} trades</div>`;
+        html += '<table><thead><tr><th>#</th><th>Entry Date</th><th>Entry ₹</th><th>Exit Date</th><th>Exit ₹</th><th>Direction</th><th>PnL</th><th>Exit Reason</th></tr></thead><tbody>';
+        r.trades.slice(-100).forEach((t,i) => {
+            const pnlClass = t.pnl >= 0 ? 'positive' : 'negative';
+            html += `<tr>
+                <td>${i+1}</td>
+                <td>${t.entry_date}</td><td>₹${t.entry_price.toLocaleString()}</td>
+                <td>${t.exit_date}</td><td>₹${(t.exit_price||0).toLocaleString()}</td>
+                <td><span class="tag ${t.direction==='long'?'tag-green':'tag-red'}">${t.direction}</span></td>
+                <td class="${pnlClass}">₹${t.pnl.toFixed(2)}</td>
+                <td><span class="tag tag-orange">${t.exit_reason}</span></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('stratDetailTrades').innerHTML = html;
+    } else {
+        document.getElementById('stratDetailTrades').innerHTML = '<p style="color:var(--text2)">No trades executed.</p>';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// BACKTEST TAB
+// ═══════════════════════════════════════════════════════════
+async function loadBacktestStrategies() {
+    const [strategies, summary] = await Promise.all([
+        api('/api/strategies'),
+        api('/api/data/summary').catch(() => null),
+    ]);
+    const sel = document.getElementById('btStrategy');
+    sel.innerHTML = strategies.map(s =>
+        `<option value="${s.id}">${s.name}</option>`
+    ).join('');
+
+    // Set default end date to last available data date
+    if (summary && summary.date_end) {
+        document.getElementById('btEndDate').value = summary.date_end;
+    }
+
+    // Initialize custom strategy params on page load
+    updateStrategyParams();
+}
+
+// ── Strategy Parameter Definitions ──────────────────────────────────────
+let STRATEGY_REGISTRY = {};
+
+async function fetchStrategyRegistry() {
+    try {
+        const res = await fetch('/api/strategies/registry');
+        if (!res.ok) throw new Error('Failed to load strategy registry');
+        const data = await res.json();
+        
+        STRATEGY_REGISTRY = data;
+
+        const selects = ['btStrategyType', 'advWfStrategy', 'advSweepStrategy'];
+        selects.forEach(selId => {
+            const select = document.getElementById(selId);
+            if (select) {
+                select.innerHTML = Object.keys(data).map(k => `<option value="${k}">${k}</option>`).join('');
+            }
+        });
+        updateStrategyParams();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function updateStrategyParams() {
+    const stype = document.getElementById('btStrategyType').value;
+    const strategy = STRATEGY_REGISTRY[stype];
+    if (!strategy) return;
+    
+    document.getElementById('strategyDesc').innerText = strategy.description || '';
+    
+    const container = document.getElementById('btParamsContainer');
+    const paramDefs = strategy.params || {};
+    
+    container.innerHTML = Object.entries(paramDefs).map(([name, desc]) => {
+        // Extract default from desc string if present, e.g., "(default: 50...)" Let's parse default:
+        let defaultVal = '';
+        const m = desc.match(/default:\s*([-0-9.]+)/i);
+        if (m) defaultVal = m[1];
+        
+        return `
+        <div class="form-group" style="margin-bottom:8px">
+            <label>${name} <span title="${desc}" style="cursor:help; color:var(--accent);">ⓘ</span></label>
+            <input type="text" 
+                   id="btParam_${name}" 
+                   value="${defaultVal}"
+                   style="width:100%">
+        </div>
+        `;
+    }).join('');
+}
+
+function getCustomStrategyParams() {
+    const stype = document.getElementById('btStrategyType').value;
+    const paramDefs = STRATEGY_REGISTRY[stype]?.params || {};
+    const params = {};
+    Object.entries(paramDefs).forEach(([name, desc]) => {
+        const el = document.getElementById(`btParam_${name}`);
+        if (el && el.value.trim() !== '') {
+            const val = el.value.trim();
+            // Since we parse strings, try converting to float where possible
+            if (!isNaN(val)) params[name] = parseFloat(val);
+            else params[name] = val;
+        }
+    });
+    return params;
+}
+
+async function runBacktest() {
+    const btn = document.getElementById('btnRunBacktest');
+    const spinner = document.getElementById('btSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline';
+
+    try {
+        const payload = {
+            initial_capital: parseFloat(document.getElementById('btCapital').value),
+            position_size_pct: parseFloat(document.getElementById('btPositionSize').value),
+            stop_loss_pct: parseFloat(document.getElementById('btStopLoss').value),
+            take_profit_pct: parseFloat(document.getElementById('btTakeProfit').value),
+            trailing_stop_pct: parseFloat(document.getElementById('btTrailingStop').value || 0),
+            max_holding_bars: parseInt(document.getElementById('btMaxHold').value || 0),
+            cooldown_bars: parseInt(document.getElementById('btCooldown').value || 0),
+            start_date: document.getElementById('btStartDate').value || null,
+            end_date: document.getElementById('btEndDate').value || null,
+            commission_pct: parseFloat(document.getElementById('btCommission').value || 0),
+            slippage_pct: parseFloat(document.getElementById('btSlippage').value || 0),
+            strategy_type: document.getElementById('btStrategyType').value,
+            params: getCustomStrategyParams()
+        };
+
+        const result = await api('/api/backtest', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        renderBacktestResult(result);
+        toast(`Backtest complete: ${result.strategy_name}`);
+    } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+    }
+}
+
+function renderBacktestResult(r) {
+    document.getElementById('btResultPanel').style.display = 'block';
+
+    // Stats — enhanced with new risk metrics
+    const retClass = r.total_return_pct >= 0 ? 'positive' : 'negative';
+    document.getElementById('btStats').innerHTML = `
+        <div class="stat"><div class="label">Final Capital</div><div class="value ${retClass}">₹${r.final_capital.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct >= 0 ? '+' : ''}${r.total_return_pct.toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Sharpe Ratio</div><div class="value">${r.sharpe_ratio.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Max Drawdown</div><div class="value negative">${r.max_drawdown_pct.toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Total Trades</div><div class="value">${r.total_trades}</div></div>
+        <div class="stat"><div class="label">Win Rate</div><div class="value">${r.win_rate_pct.toFixed(1)}%</div></div>
+        <div class="stat"><div class="label">Profit Factor</div><div class="value">${r.profit_factor.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Sortino</div><div class="value">${(r.sortino_ratio||0).toFixed(2)}</div></div>
+    `;
+    // Extra risk metrics row
+    const omg = r.omega_ratio != null ? r.omega_ratio.toFixed(2) : 'N/A';
+    const var95 = r.value_at_risk_95 != null ? r.value_at_risk_95.toFixed(2) + '%' : 'N/A';
+    const cvar = r.cvar_95 != null ? r.cvar_95.toFixed(2) + '%' : 'N/A';
+    const rmul = r.avg_r_multiple != null ? r.avg_r_multiple.toFixed(2) : 'N/A';
+    const mae = r.avg_mae_pct != null ? r.avg_mae_pct.toFixed(2) + '%' : 'N/A';
+    const mfe = r.avg_mfe_pct != null ? r.avg_mfe_pct.toFixed(2) + '%' : 'N/A';
+    document.getElementById('btStats').innerHTML += `
+        <div class="stat"><div class="label">Omega Ratio</div><div class="value">${omg}</div></div>
+        <div class="stat"><div class="label">VaR (95%)</div><div class="value negative">${var95}</div></div>
+        <div class="stat"><div class="label">CVaR (95%)</div><div class="value negative">${cvar}</div></div>
+        <div class="stat"><div class="label">Avg R-Multiple</div><div class="value">${rmul}</div></div>
+        <div class="stat"><div class="label">Avg MAE</div><div class="value negative">${mae}</div></div>
+        <div class="stat"><div class="label">Avg MFE</div><div class="value positive">${mfe}</div></div>
+        <div class="stat"><div class="label">Calmar</div><div class="value">${(r.calmar_ratio||0).toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Exposure</div><div class="value">${(r.exposure_time_pct||0).toFixed(1)}%</div></div>
+    `;
+
+    // Equity curve
+    if (r.equity_curve && r.equity_curve.length) {
+        const ctx = document.getElementById('equityChart').getContext('2d');
+        if (equityChartInstance) {
+            equityChartInstance.destroy();
+        }
+        // ... build dataset code above remains
+        const datasets = [{
+            label: 'Strategy',
+            data: r.equity_curve.map(e => e.equity),
+            borderColor: r.total_return_pct >= 0 ? '#22c55e' : '#ef4444',
+            backgroundColor: r.total_return_pct >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+            fill: true,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.1,
+            yAxisID: 'y'
+        }];
+        
+        // Add Benchmark (Buy & Hold Nifty) if available
+        if (r.equity_curve[0] && "benchmark_equity" in r.equity_curve[0]) {
+            datasets.push({
+                label: 'Benchmark (Hold Nifty)',
+                data: r.equity_curve.map(e => e.benchmark_equity),
+                borderColor: '#6366f1',
+                backgroundColor: 'transparent',
+                borderDash: [5, 5],
+                fill: false,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.1,
+                yAxisID: 'y'
+            });
+        }
+
+        equityChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: r.equity_curve.map(e => e.Date),
+                datasets: datasets,
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: true, position: 'top', labels: { color: 'var(--text)' } },
+                    tooltip: { mode: 'index', intersect: false }
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 8, color: '#8b8fa3' }, grid: { color: '#2d3148' } },
+                    y: { 
+                        position: 'left',
+                        ticks: { color: '#8b8fa3', callback: v => '₹' + (v/1000).toFixed(0) + 'K' }, 
+                        grid: { color: '#2d3148' } 
+                    },
+                },
+            },
+        });
+    }
+
+    // Trades table — enhanced with MAE/MFE/R-multiple
+    if (r.trades && r.trades.length) {
+        let html = '<table><thead><tr><th>Entry</th><th>Entry ₹</th><th>Exit</th><th>Exit ₹</th><th>Dir</th><th>PnL</th><th>MAE</th><th>MFE</th><th>R-Mult</th><th>Reason</th></tr></thead><tbody>';
+        r.trades.slice(-100).forEach(t => {
+            const pnlClass = t.pnl >= 0 ? 'positive' : 'negative';
+            const mae = t.mae != null ? (t.mae * 100).toFixed(2) + '%' : '-';
+            const mfe = t.mfe != null ? (t.mfe * 100).toFixed(2) + '%' : '-';
+            const rmul = t.r_multiple != null ? t.r_multiple.toFixed(2) : '-';
+            html += `<tr>
+                <td>${t.entry_date}</td><td>₹${t.entry_price.toLocaleString()}</td>
+                <td>${t.exit_date}</td><td>₹${(t.exit_price||0).toLocaleString()}</td>
+                <td><span class="tag ${t.direction==='long'?'tag-green':'tag-red'}">${t.direction}</span></td>
+                <td class="${pnlClass}">₹${t.pnl.toFixed(2)}</td>
+                <td class="negative">${mae}</td>
+                <td class="positive">${mfe}</td>
+                <td>${rmul}</td>
+                <td><span class="tag tag-orange">${t.exit_reason}</span></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('tradeLog').innerHTML = html;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RESULTS TAB
+// ═══════════════════════════════════════════════════════════
+async function loadResults() {
+    const data = await api('/api/backtest/runs');
+    const runs = data.runs || data;  // Support paginated and flat response
+    const el = document.getElementById('allResults');
+    if (!runs.length) { el.innerHTML = '<p style="color:var(--text2)">No backtest runs yet.</p>'; return; }
+
+    let html = '<table><thead><tr><th>#</th><th>Strategy</th><th>Return%</th><th>Sharpe</th><th>Max DD%</th><th>Trades</th><th>Win%</th><th>P.Factor</th><th>Date</th><th>Actions</th></tr></thead><tbody>';
+    runs.forEach(r => {
+        const retClass = r.total_return >= 0 ? 'positive' : 'negative';
+        html += `<tr>
+            <td>${r.id}</td>
+            <td><strong>${r.strategy_name}</strong></td>
+            <td class="${retClass}">${r.total_return >= 0 ? '+' : ''}${r.total_return.toFixed(2)}%</td>
+            <td>${r.sharpe_ratio.toFixed(2)}</td>
+            <td class="negative">${r.max_drawdown.toFixed(2)}%</td>
+            <td>${r.total_trades}</td>
+            <td>${r.win_rate.toFixed(1)}%</td>
+            <td>${r.profit_factor.toFixed(2)}</td>
+            <td>${r.run_at ? r.run_at.slice(0,10) : ''}</td>
+            <td>
+                <button class="btn btn-sm btn-ghost" onclick="viewRun(${r.id})">View</button>
+                <a class="btn btn-sm btn-ghost" href="/api/backtest/runs/${r.id}/export" target="_blank" style="text-decoration:none;margin-left:4px">CSV</a>
+            </td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+async function viewRun(id) {
+    const r = await api(`/api/backtest/runs/${id}`);
+    // Switch to backtest tab and show results
+    switchTab('backtest');
+    renderBacktestResult({
+        ...r,
+        equity_curve: r.equity_curve || [],
+        trades: r.trades || [],
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PREDICT TAB
+// ═══════════════════════════════════════════════════════════
+async function runPrediction() {
+    const btn = document.getElementById('btnPredict');
+    const spinner = document.getElementById('predSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline';
+
+    try {
+        const method = document.getElementById('predMethod').value;
+        const sims = document.getElementById('predSims').value;
+        const [result, candles] = await Promise.all([
+            api(`/api/predict?method=${method}&simulations=${sims}`),
+            api(`/api/predict/candles?simulations=${sims}`),
+        ]);
+        renderPrediction(result);
+        renderProjectionCandles(candles);
+        toast('Prediction complete!');
+    } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+    }
+}
+
+async function runAccuracyBacktest() {
+    const btn = document.getElementById('btnAccuracy');
+    const spinner = document.getElementById('predSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline';
+    spinner.innerHTML = '<span class="spinner"></span> Running accuracy backtest (this may take a minute)…';
+
+    try {
+        const result = await api('/api/predict/accuracy?lookback=252&step=5&simulations=3000');
+        renderAccuracy(result);
+        toast('Accuracy backtest complete!');
+    } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        spinner.innerHTML = '<span class="spinner"></span> Calculating…';
+    }
+}
+
+function renderPrediction(r) {
+    document.getElementById('predResultPanel').style.display = 'block';
+
+    // Enhanced current stats
+    const changeColor = r.current_vix && r.current_vix > 25 ? 'var(--red)' : r.current_vix && r.current_vix < 15 ? 'var(--green)' : 'var(--orange)';
+    document.getElementById('predCurrentStats').innerHTML = `
+        <div class="stat"><div class="label">Current Price</div><div class="value">₹${r.current_price.toLocaleString()}</div><div class="sub">As of ${r.as_of_date}</div></div>
+        <div class="stat"><div class="label">India VIX</div><div class="value" style="color:${changeColor}">${r.current_vix ? r.current_vix.toFixed(2) : 'N/A'}</div><div class="sub">Regime: <strong>${r.vix_regime}</strong></div></div>
+        <div class="stat"><div class="label">Method</div><div class="value" style="font-size:16px">${document.getElementById('predMethod').value}</div><div class="sub">Simulations: ${document.getElementById('predSims').value}</div></div>
+    `;
+
+    // Horizon forecast table with enhanced metrics
+    let html = '<table><thead><tr><th>Horizon</th><th>Days</th><th>Mean</th><th>Median</th><th>Std Dev</th><th>P(Up)</th><th>P(Down)</th><th>50% CI</th><th>90% CI</th><th>95% CI</th></tr></thead><tbody>';
+    for (const [name, p] of Object.entries(r.predictions)) {
+        const pct50 = p.percentiles['50'] || { low: 0, high: 0 };
+        const pct90 = p.percentiles['90'] || { low: 0, high: 0 };
+        const pct95 = p.percentiles['95'] || { low: 0, high: 0 };
+        const upClass = p.prob_up >= 50 ? 'positive' : 'negative';
+        const downClass = p.prob_down >= 50 ? 'negative' : 'positive';
+        html += `<tr>
+            <td><strong>${name.replace(/_/g, ' ')}</strong></td>
+            <td>${p.horizon_days}</td>
+            <td>₹${p.mean_price.toLocaleString()}</td>
+            <td>₹${p.median_price.toLocaleString()}</td>
+            <td>₹${p.std_price.toLocaleString()}</td>
+            <td class="${upClass}" style="font-weight:700">${p.prob_up}%</td>
+            <td class="${downClass}" style="font-weight:700">${p.prob_down}%</td>
+            <td style="font-size:12px">₹${pct50.low.toLocaleString()} – ${pct50.high.toLocaleString()}</td>
+            <td style="font-size:12px">₹${pct90.low.toLocaleString()} – ${pct90.high.toLocaleString()}</td>
+            <td style="font-size:12px">₹${pct95.low.toLocaleString()} – ${pct95.high.toLocaleString()}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+
+    // Probability bars
+    html += '<div style="margin-top:20px">';
+    for (const [name, p] of Object.entries(r.predictions)) {
+        const label = name.replace(/_/g, ' ');
+        html += `
+        <div style="margin-bottom:16px">
+            <div style="font-size:13px;color:var(--text2);margin-bottom:4px">${label} (${p.horizon_days}d) — Expected: ₹${p.mean_price.toLocaleString()}</div>
+            <div style="display:flex;height:24px;border-radius:6px;overflow:hidden">
+                <div style="width:${p.prob_up}%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">↑ ${p.prob_up}%</div>
+                <div style="width:${p.prob_down}%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">↓ ${p.prob_down}%</div>
+            </div>
+        </div>`;
+    }
+    html += '</div>';
+
+    document.getElementById('predHorizons').innerHTML = html;
+}
+
+function renderProjectionCandles(data) {
+    const container = document.getElementById('projectionCandles');
+    container.innerHTML = '';
+
+    // Destroy old instances
+    Object.values(projectionChartInstances).forEach(c => c.destroy());
+    projectionChartInstances = {};
+
+    const horizonNames = { next_day: 'Next Day', '5_days': '~5 Days', next_week: 'Next Week', next_month: 'Next Month' };
+
+    for (const [key, info] of Object.entries(data)) {
+        const canvasId = `projCanvas_${key}`;
+        const div = document.createElement('div');
+        div.style.cssText = 'background:var(--bg3);border-radius:12px;padding:16px;';
+        div.innerHTML = `
+            <div style="font-weight:600;margin-bottom:8px">${horizonNames[key] || key} (${info.horizon_days}d)</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Current: ₹${info.current_price.toLocaleString()} · Vol: ${(info.annual_vol * 100).toFixed(1)}%</div>
+            <div style="height:220px"><canvas id="${canvasId}"></canvas></div>
+        `;
+        container.appendChild(div);
+
+        const candles = info.candles;
+        const ctx = document.getElementById(canvasId).getContext('2d');
+
+        // Draw candles as a bar chart with error bars
+        const labels = candles.map(c => `Day ${c.day}`);
+        const bodyLow = candles.map(c => Math.min(c.open, c.close));
+        const bodyHigh = candles.map(c => Math.max(c.open, c.close));
+        const colors = candles.map(c => c.close >= c.open ? '#22c55e' : '#ef4444');
+
+        projectionChartInstances[key] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Body Low (invisible base)',
+                        data: bodyLow,
+                        backgroundColor: 'transparent',
+                        borderWidth: 0,
+                        barPercentage: 0.6,
+                    },
+                    {
+                        label: 'Candle Body',
+                        data: candles.map(c => Math.abs(c.close - c.open) || 0.5),
+                        backgroundColor: colors,
+                        borderColor: colors,
+                        borderWidth: 1,
+                        barPercentage: 0.6,
+                    },
+                    {
+                        label: '90% CI',
+                        type: 'line',
+                        data: candles.map(c => c.upper_90),
+                        borderColor: 'rgba(99,102,241,0.5)',
+                        borderDash: [4, 2],
+                        borderWidth: 1,
+                        pointRadius: 2,
+                        fill: false,
+                    },
+                    {
+                        label: '90% CI Low',
+                        type: 'line',
+                        data: candles.map(c => c.lower_90),
+                        borderColor: 'rgba(99,102,241,0.5)',
+                        borderDash: [4, 2],
+                        borderWidth: 1,
+                        pointRadius: 2,
+                        fill: false,
+                    },
+                    {
+                        label: 'Median Close',
+                        type: 'line',
+                        data: candles.map(c => c.close),
+                        borderColor: '#f59e0b',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#f59e0b',
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(c) {
+                                const i = c.dataIndex;
+                                const cd = candles[i];
+                                return [
+                                    `O: ₹${cd.open.toFixed(0)}`,
+                                    `H: ₹${cd.high.toFixed(0)}`,
+                                    `L: ₹${cd.low.toFixed(0)}`,
+                                    `C: ₹${cd.close.toFixed(0)}`,
+                                    `90%CI: ₹${cd.lower_90.toFixed(0)} – ${cd.upper_90.toFixed(0)}`,
+                                ];
+                            }
+                        }
+                    },
+                },
+                scales: {
+                    x: { stacked: true, ticks: { color: '#8b8fa3' }, grid: { color: '#2d3148' } },
+                    y: {
+                        stacked: true,
+                        ticks: { color: '#8b8fa3', callback: v => '₹' + v.toLocaleString() },
+                        grid: { color: '#2d3148' },
+                        min: Math.min(...candles.map(c => c.lower_90)) * 0.998,
+                        max: Math.max(...candles.map(c => c.upper_90)) * 1.002,
+                    },
+                },
+            },
+        });
+    }
+}
+
+function renderAccuracy(data) {
+    document.getElementById('accuracyPanel').style.display = 'block';
+
+    // Summary cards
+    let cardsHtml = '';
+    for (const [name, m] of Object.entries(data)) {
+        if (!m.n_samples) continue;
+        const dirColor = m.direction_accuracy_pct >= 55 ? 'var(--green)' : m.direction_accuracy_pct >= 50 ? 'var(--orange)' : 'var(--red)';
+        const ciColor = m.ci_90_coverage_pct >= 85 ? 'var(--green)' : m.ci_90_coverage_pct >= 70 ? 'var(--orange)' : 'var(--red)';
+        cardsHtml += `
+        <div class="card" style="padding:16px">
+            <h3 style="margin:0 0 12px">${name.replace(/_/g, ' ')} <span style="font-size:12px;color:var(--text2)">(${m.horizon_days}d, n=${m.n_samples})</span></h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px">
+                <div>Direction Accuracy</div><div style="font-weight:700;color:${dirColor}">${m.direction_accuracy_pct}%</div>
+                <div>90% CI Coverage</div><div style="font-weight:700;color:${ciColor}">${m.ci_90_coverage_pct}%</div>
+                <div>MAE</div><div style="font-weight:600">${m.mae_pct}%</div>
+                <div>RMSE</div><div style="font-weight:600">${m.rmse_pct}%</div>
+                <div>Mean Bias</div><div style="font-weight:600;color:${m.mean_bias_pct > 0 ? 'var(--green)' : 'var(--red)'}">${m.mean_bias_pct > 0 ? '+' : ''}${m.mean_bias_pct}%</div>
+            </div>
+            <div style="margin-top:12px">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Direction accuracy</div>
+                <div style="display:flex;height:18px;border-radius:4px;overflow:hidden">
+                    <div style="width:${m.direction_accuracy_pct}%;background:var(--green);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${m.direction_accuracy_pct}%</div>
+                    <div style="width:${100-m.direction_accuracy_pct}%;background:var(--red);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${(100-m.direction_accuracy_pct).toFixed(1)}%</div>
+                </div>
+            </div>
+        </div>`;
+    }
+    document.getElementById('accuracyCards').innerHTML = cardsHtml;
+
+    // Detailed prediction-vs-actual table (first horizon only, last 20)
+    let detailHtml = '';
+    for (const [name, m] of Object.entries(data)) {
+        if (!m.details || !m.details.length) continue;
+        const rows = m.details.slice(-20);
+        detailHtml += `<h3>Last 20 Predictions — ${name.replace(/_/g, ' ')}</h3>`;
+        detailHtml += '<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Price Then</th><th>Actual</th><th>Predicted</th><th>P(Up)</th><th>Direction</th><th>In 90% CI</th><th>Error</th></tr></thead><tbody>';
+        for (const r of rows) {
+            const dirIcon = r.direction_correct ? '✅' : '❌';
+            const ciIcon = r.in_90_ci ? '✅' : '❌';
+            const errClass = Math.abs(r.pct_error) < 2 ? 'positive' : Math.abs(r.pct_error) < 5 ? '' : 'negative';
+            detailHtml += `<tr>
+                <td>${r.date}</td>
+                <td>₹${r.price_at_prediction.toLocaleString()}</td>
+                <td>₹${r.actual_price.toLocaleString()}</td>
+                <td>₹${r.predicted_mean.toLocaleString()}</td>
+                <td>${r.predicted_prob_up}%</td>
+                <td>${dirIcon}</td>
+                <td>${ciIcon}</td>
+                <td class="${errClass}">${r.pct_error > 0 ? '+' : ''}${r.pct_error}%</td>
+            </tr>`;
+        }
+        detailHtml += '</tbody></table></div>';
+    }
+    document.getElementById('accuracyDetails').innerHTML = detailHtml;
+}
+
+// ═══════════════════════════════════════════════════════════
+// COPILOT CHAT
+// ═══════════════════════════════════════════════════════════
+async function checkLLMStatus() {
+    try {
+        const status = await api('/api/llm/status');
+        const banner = document.getElementById('llmStatusBanner');
+        if (status.llm_available) {
+            banner.style.display = 'block';
+            banner.style.background = '#1a3a1a';
+            banner.style.border = '1px solid #2d5a2d';
+            banner.style.color = '#7cc67c';
+            banner.innerHTML = '🧠 <strong>LLM Active</strong> — Natural language powered by ' + (status.model_id || 'WatsonX') + '. Ask anything!';
+        } else if (status.llm_enabled) {
+            banner.style.display = 'block';
+            banner.style.background = '#3a2a1a';
+            banner.style.border = '1px solid #5a3a2d';
+            banner.style.color = '#c6a87c';
+            banner.innerHTML = '⚠️ <strong>LLM Enabled but not connected</strong> — Check .env credentials. Using rule-based fallback.';
+        } else {
+            banner.style.display = 'block';
+            banner.style.background = '#1a1a2a';
+            banner.style.border = '1px solid #2d2d5a';
+            banner.style.color = '#7c7cc6';
+            banner.innerHTML = 'ℹ️ <strong>Rule-based mode</strong> — Set LLM_ENABLED=true in .env for natural language support.';
+        }
+    } catch (e) {
+        // silently ignore - banner stays hidden
+    }
+}
+
+async function sendChat() {
+    const input = document.getElementById('chatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+
+    appendMsg(msg, 'user');
+    document.getElementById('typingIndicator').classList.add('show');
+
+    try {
+        const result = await api('/api/copilot', {
+            method: 'POST',
+            body: JSON.stringify({ message: msg, session_id: copilotSessionId, use_llm: true }),
+        });
+        copilotSessionId = result.session_id;
+
+        // Add LLM badge if response came from the LLM
+        let response = result.response;
+        if (result.llm_used) {
+            response = '🧠 *Powered by LLM*\n\n' + response;
+        }
+        appendMsg(response, 'bot');
+
+        // If a backtest was triggered, refresh the results tab
+        if (result.backtest_run_id) {
+            toast('Backtest completed via Copilot!');
+        }
+    } catch (e) {
+        appendMsg('⚠️ Error: ' + e.message, 'bot');
+    } finally {
+        document.getElementById('typingIndicator').classList.remove('show');
+    }
+}
+
+function appendMsg(text, role) {
+    const container = document.getElementById('chatMessages');
+    const div = document.createElement('div');
+    div.className = `msg msg-${role}`;
+    if (role === 'bot') {
+        // Render markdown
+        div.innerHTML = marked.parse(text);
+    } else {
+        div.textContent = text;
+    }
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+    fetchStrategyRegistry();
+    loadDataTab();
+    checkLLMStatus();
+    // Restore theme preference
+    if (localStorage.getItem('theme') === 'light') {
+        document.documentElement.classList.add('light');
+        document.getElementById('themeBtn').textContent = '☀️';
+    }
+});
+
+// ═══════════════════════════════════════════════════════════
+// THEME TOGGLE
+// ═══════════════════════════════════════════════════════════
+function toggleTheme() {
+    const isLight = document.documentElement.classList.toggle('light');
+    document.getElementById('themeBtn').textContent = isLight ? '☀️' : '🌙';
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATA - HEATMAP & QUALITY
+// ═══════════════════════════════════════════════════════════
+async function loadHeatmap() {
+    try {
+        const data = await api('/api/data/heatmap');
+        let html = '<table class="heatmap-table"><thead><tr><th>Year</th>';
+        data.months.forEach(m => html += `<th>${m}</th>`);
+        html += '</tr></thead><tbody>';
+        data.years.forEach(y => {
+            html += `<tr><td style="font-weight:700">${y}</td>`;
+            data.months.forEach(m => {
+                const val = data.data[y]?.[m];
+                if (val == null) {
+                    html += '<td style="color:var(--text2)">—</td>';
+                } else {
+                    const intensity = Math.min(Math.abs(val) / 10, 1).toFixed(2);
+                    const cls = val >= 0 ? 'hm-pos' : 'hm-neg';
+                    html += `<td class="${cls}" style="--hm-a:${intensity}">${val > 0 ? '+' : ''}${val.toFixed(1)}</td>`;
+                }
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('heatmapContainer').innerHTML = html;
+    } catch (e) {
+        document.getElementById('heatmapContainer').innerHTML = '<p style="color:var(--red)">Failed to load heatmap</p>';
+    }
+}
+
+async function loadDataQuality() {
+    try {
+        const q = await api('/api/data/quality');
+        let html = `<div style="margin-bottom:8px"><span class="tag ${q.ok ? 'tag-green' : 'tag-red'}">${q.ok ? '✅ No Issues' : '⚠️ Issues Found'}</span> <span style="color:var(--text2);font-size:12px">${q.date_range} · ${q.rows.toLocaleString()} rows</span></div>`;
+        if (q.issues.length) {
+            html += '<div style="margin-bottom:8px">';
+            q.issues.forEach(i => html += `<div style="color:var(--red);font-size:13px;margin:4px 0">❌ ${i}</div>`);
+            html += '</div>';
+        }
+        if (q.warnings.length) {
+            html += '<div>';
+            q.warnings.forEach(w => html += `<div style="color:var(--orange);font-size:13px;margin:4px 0">⚠️ ${w}</div>`);
+            html += '</div>';
+        }
+        if (!q.issues.length && !q.warnings.length) {
+            html += '<p style="color:var(--green);font-size:13px">All data quality checks passed.</p>';
+        }
+        document.getElementById('dataQualityContainer').innerHTML = html;
+    } catch (e) {
+        document.getElementById('dataQualityContainer').innerHTML = '<p style="color:var(--red)">Failed to check quality</p>';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADVANCED ANALYSIS
+// ═══════════════════════════════════════════════════════════
+function updateWFParams() {
+    const stype = document.getElementById('wfStratType').value;
+    const params = STRATEGY_PARAMS[stype] || [];
+    const container = document.getElementById('wfParamsContainer');
+    container.innerHTML = params.map(p => `
+        <div class="form-group">
+            <label>${p.label}</label>
+            <input type="number" id="wfParam_${p.name}" value="${p.default}"
+                   ${p.min !== undefined ? `min="${p.min}"` : ''} ${p.max !== undefined ? `max="${p.max}"` : ''}
+                   ${p.step !== undefined ? `step="${p.step}"` : ''}>
+        </div>
+    `).join('');
+}
+
+async function runWalkForward() {
+    const btn = document.getElementById('btnWF');
+    const spinner = document.getElementById('wfSpinner');
+    btn.disabled = true; spinner.style.display = 'inline';
+
+    try {
+        const stype = document.getElementById('wfStratType').value;
+        const paramDefs = STRATEGY_PARAMS[stype] || [];
+        const params = {};
+        paramDefs.forEach(p => {
+            const el = document.getElementById(`wfParam_${p.name}`);
+            if (el) params[p.name] = parseFloat(el.value);
+        });
+
+        const result = await api('/api/backtest/walk-forward', {
+            method: 'POST',
+            body: JSON.stringify({
+                strategy_type: stype,
+                params,
+                n_splits: parseInt(document.getElementById('wfSplits').value),
+                train_pct: parseFloat(document.getElementById('wfTrainPct').value) / 100,
+            }),
+        });
+
+        if (result.error) {
+            document.getElementById('wfResults').innerHTML = `<p class="negative">${result.error}</p>`;
+            return;
+        }
+
+        // Render walk-forward results
+        const verdictColor = result.verdict.includes('Low') ? 'var(--green)' : result.verdict.includes('Moderate') ? 'var(--orange)' : 'var(--red)';
+        let html = `
+            <div class="grid grid-4" style="margin-bottom:16px">
+                <div class="stat"><div class="label">Avg Train Return</div><div class="value positive">${result.avg_train_return_pct.toFixed(2)}%</div></div>
+                <div class="stat"><div class="label">Avg Test Return</div><div class="value ${result.avg_test_return_pct >= 0 ? 'positive' : 'negative'}">${result.avg_test_return_pct.toFixed(2)}%</div></div>
+                <div class="stat"><div class="label">Overfit Ratio</div><div class="value" style="color:${verdictColor}">${result.overfit_ratio.toFixed(2)}</div></div>
+                <div class="stat"><div class="label">Verdict</div><div class="value" style="font-size:13px;color:${verdictColor}">${result.verdict}</div></div>
+            </div>
+            <table><thead><tr><th>Fold</th><th>Train Period</th><th>Test Period</th><th>Train Ret%</th><th>Test Ret%</th><th>Train Sharpe</th><th>Test Sharpe</th><th>Train DD%</th><th>Test DD%</th></tr></thead><tbody>`;
+        result.folds.forEach(f => {
+            html += `<tr>
+                <td>${f.fold}</td>
+                <td>${f.train_start} → ${f.train_end}</td>
+                <td>${f.test_start} → ${f.test_end}</td>
+                <td class="${f.train_return_pct >= 0 ? 'positive' : 'negative'}">${f.train_return_pct.toFixed(2)}%</td>
+                <td class="${f.test_return_pct >= 0 ? 'positive' : 'negative'}">${f.test_return_pct.toFixed(2)}%</td>
+                <td>${f.train_sharpe.toFixed(2)}</td>
+                <td>${f.test_sharpe.toFixed(2)}</td>
+                <td class="negative">${f.train_max_dd.toFixed(2)}%</td>
+                <td class="negative">${f.test_max_dd.toFixed(2)}%</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('wfResults').innerHTML = html;
+        toast('Walk-forward analysis complete!');
+    } catch (e) {
+        document.getElementById('wfResults').innerHTML = `<p style="color:var(--red)">Error: ${e.message}</p>`;
+    } finally {
+        btn.disabled = false; spinner.style.display = 'none';
+    }
+}
+
+async function runMonteCarlo() {
+    const btn = document.getElementById('btnMC');
+    const spinner = document.getElementById('mcSpinner');
+    btn.disabled = true; spinner.style.display = 'inline';
+
+    try {
+        const result = await api('/api/backtest/monte-carlo', {
+            method: 'POST',
+            body: JSON.stringify({
+                run_id: parseInt(document.getElementById('mcRunId').value),
+                n_simulations: parseInt(document.getElementById('mcSims').value),
+            }),
+        });
+
+        if (result.error) {
+            document.getElementById('mcResults').innerHTML = `<p class="negative">${result.error}</p>`;
+            return;
+        }
+
+        let html = `
+            <div class="grid grid-4" style="margin-bottom:16px">
+                <div class="stat"><div class="label">Simulations</div><div class="value">${result.n_simulations.toLocaleString()}</div></div>
+                <div class="stat"><div class="label">Trades Resampled</div><div class="value">${result.n_trades}</div></div>
+                <div class="stat"><div class="label">P(Profit)</div><div class="value positive">${result.probability_of_profit}%</div></div>
+                <div class="stat"><div class="label">P(20% DD)</div><div class="value negative">${result.probability_of_20pct_drawdown}%</div></div>
+            </div>
+            <table><thead><tr><th>Metric</th><th>P5</th><th>P25</th><th>P50 (Median)</th><th>P75</th><th>P95</th></tr></thead><tbody>`;
+
+        const dists = { 'Return %': result.return_distribution, 'Max Drawdown %': result.drawdown_distribution, 'Sharpe Ratio': result.sharpe_distribution };
+        Object.entries(dists).forEach(([name, dist]) => {
+            html += `<tr><td><strong>${name}</strong></td>`;
+            ['p5','p25','p50','p75','p95'].forEach(p => {
+                html += `<td>${dist[p]}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('mcResults').innerHTML = html;
+        toast('Monte Carlo analysis complete!');
+    } catch (e) {
+        document.getElementById('mcResults').innerHTML = `<p style="color:var(--red)">Error: ${e.message}</p>`;
+    } finally {
+        btn.disabled = false; spinner.style.display = 'none';
+    }
+}
+
+async function runSweep() {
+    const btn = document.getElementById('btnSW');
+    const spinner = document.getElementById('swSpinner');
+    btn.disabled = true; spinner.style.display = 'inline';
+
+    try {
+        const values = document.getElementById('swParamValues').value.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
+        const result = await api('/api/backtest/sweep', {
+            method: 'POST',
+            body: JSON.stringify({
+                strategy_type: document.getElementById('swStratType').value,
+                param_name: document.getElementById('swParamName').value.trim(),
+                param_values: values,
+            }),
+        });
+
+        const rows = result.results || result;
+        const paramName = result.param_name || document.getElementById('swParamName').value;
+
+        let html = `<table><thead><tr><th>${paramName}</th><th>Return%</th><th>Annual%</th><th>Sharpe</th><th>Max DD%</th><th>Trades</th><th>Win%</th><th>P.Factor</th></tr></thead><tbody>`;
+        rows.forEach(r => {
+            if (r.error) {
+                html += `<tr><td>${r[paramName]}</td><td colspan="7" class="negative">${r.error}</td></tr>`;
+            } else {
+                const retClass = r.total_return_pct >= 0 ? 'positive' : 'negative';
+                html += `<tr>
+                    <td><strong>${r[paramName]}</strong></td>
+                    <td class="${retClass}">${r.total_return_pct.toFixed(2)}%</td>
+                    <td>${r.annual_return_pct.toFixed(2)}%</td>
+                    <td>${r.sharpe_ratio.toFixed(2)}</td>
+                    <td class="negative">${r.max_drawdown_pct.toFixed(2)}%</td>
+                    <td>${r.total_trades}</td>
+                    <td>${r.win_rate_pct.toFixed(1)}%</td>
+                    <td>${r.profit_factor.toFixed(2)}</td>
+                </tr>`;
+            }
+        });
+        html += '</tbody></table>';
+        document.getElementById('swResults').innerHTML = html;
+        toast('Parameter sweep complete!');
+    } catch (e) {
+        document.getElementById('swResults').innerHTML = `<p style="color:var(--red)">Error: ${e.message}</p>`;
+    } finally {
+        btn.disabled = false; spinner.style.display = 'none';
+    }
+}
+
+async function runCorrelation() {
+    const btn = document.getElementById('btnCorr');
+    const spinner = document.getElementById('corrSpinner');
+    btn.disabled = true; spinner.style.display = 'inline';
+
+    try {
+        const strategies = [
+            { type: 'sma_crossover', params: { fast_window: 50, slow_window: 200 } },
+            { type: 'ema_crossover', params: { fast_span: 12, slow_span: 26 } },
+            { type: 'rsi_mean_reversion', params: { oversold: 30, overbought: 70 } },
+            { type: 'macd_crossover', params: { fast_ema: 12, slow_ema: 26, signal_period: 9 } },
+            { type: 'bollinger_band', params: { window: 20, num_std: 2.0 } },
+            { type: 'atr_breakout', params: { sma_window: 20, atr_period: 14, atr_multiplier: 1.5 } },
+        ];
+
+        const result = await api('/api/backtest/correlation', {
+            method: 'POST',
+            body: JSON.stringify({ strategies }),
+        });
+
+        if (result.error) {
+            document.getElementById('corrResults').innerHTML = `<p class="negative">${result.error}</p>`;
+            return;
+        }
+
+        // Render correlation matrix
+        const names = result.strategy_names;
+        let html = `<div style="margin-bottom:12px"><span class="tag tag-blue">Avg |Correlation|: ${result.avg_correlation}</span></div>`;
+        html += '<table class="heatmap-table"><thead><tr><th></th>';
+        names.forEach(n => html += `<th style="font-size:10px">${n.substring(0,12)}</th>`);
+        html += '</tr></thead><tbody>';
+        names.forEach(a => {
+            html += `<tr><td style="font-weight:700;font-size:10px;text-align:left">${a.substring(0,12)}</td>`;
+            names.forEach(b => {
+                const val = result.correlation_matrix[a]?.[b];
+                if (val == null) {
+                    html += '<td>—</td>';
+                } else if (a === b) {
+                    html += '<td style="background:var(--accent);color:white">1.00</td>';
+                } else {
+                    const intensity = Math.min(Math.abs(val), 1).toFixed(2);
+                    const cls = val >= 0 ? 'hm-pos' : 'hm-neg';
+                    html += `<td class="${cls}" style="--hm-a:${intensity}">${val.toFixed(3)}</td>`;
+                }
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+
+        // Pairwise list
+        html += '<div style="margin-top:16px"><h3 style="color:var(--text2);font-size:13px">Pairwise Correlations (sorted by |corr|)</h3>';
+        result.pairwise_correlations.slice(0, 10).forEach(p => {
+            const color = Math.abs(p.correlation) > 0.7 ? 'var(--red)' : Math.abs(p.correlation) > 0.4 ? 'var(--orange)' : 'var(--green)';
+            html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+                <span>${p.strategy_a} ↔ ${p.strategy_b}</span>
+                <span style="font-weight:700;color:${color}">${p.correlation.toFixed(3)}</span>
+            </div>`;
+        });
+        html += '</div>';
+
+        document.getElementById('corrResults').innerHTML = html;
+        toast('Correlation analysis complete!');
+    } catch (e) {
+        document.getElementById('corrResults').innerHTML = `<p style="color:var(--red)">Error: ${e.message}</p>`;
+    } finally {
+        btn.disabled = false; spinner.style.display = 'none';
+    }
+}
+
+async function deleteAllRuns() {
+    if (!confirm('Delete ALL backtest runs? This cannot be undone.')) return;
+    try {
+        await api('/api/backtest/runs', { method: 'DELETE' });
+        toast('All runs deleted');
+        loadResults();
+    } catch (e) { /* toast shown by api() */ }
+}
+</script>
+</body>
+</html>

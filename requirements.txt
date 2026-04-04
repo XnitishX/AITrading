@@ -1,0 +1,28 @@
+# ─── Core ───────────────────────────────────────────────────
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+
+# ─── Data ───────────────────────────────────────────────────
+yfinance>=0.2
+pyarrow>=14.0           # parquet support
+
+# ─── Visualisation ──────────────────────────────────────────
+matplotlib>=3.7
+
+# ─── Web UI ─────────────────────────────────────────────────
+fastapi>=0.100
+uvicorn[standard]>=0.20
+jinja2>=3.1
+aiofiles>=23.0
+
+# ─── LLM / AI Agent ────────────────────────────────────────
+# IBM WatsonX AI via LangChain (same setup as IBM_RAG project)
+python-dotenv>=1.0
+langchain>=0.2
+langchain-core>=0.2
+langchain-ibm>=0.1
+ibm_watsonx_ai>=1.0
+
+# ─── Dev / Testing ──────────────────────────────────────────
+pytest>=7.0

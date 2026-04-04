@@ -1,0 +1,29 @@
+# Byte-compiled / optimised
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Data files (downloaded from Yahoo Finance)
+data/raw/
+data/processed/
+
+# Output artefacts
+output/
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials
+kaggle.json
