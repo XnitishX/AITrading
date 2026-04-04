@@ -24,5 +24,8 @@ langchain-core>=0.2
 langchain-ibm>=0.1
 ibm_watsonx_ai>=1.0
 
+# ─── MCP / Copilot Integration ──────────────────────────────
+mcp>=0.1
+
 # ─── Dev / Testing ──────────────────────────────────────────
 pytest>=7.0
