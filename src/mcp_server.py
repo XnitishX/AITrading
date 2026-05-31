@@ -57,12 +57,13 @@ class AITradingAnalyzer:
             
             df = self.df.copy()
             
-            # Calculate gap percentage
+            # Calculate previous close and gap percentage
+            df['Prev_Close'] = df['Close'].shift(1)
             df['Gap_Pct'] = ((df['Open'] - df['Prev_Close']) / df['Prev_Close'] * 100).fillna(0)
             
             # Filter conditions
-            mask = (df['VIX_Close'] > vix_threshold) & (df['Gap_Pct'] > gap_percent)
-            result_df = df[mask][['Date', 'Open', 'Prev_Close', 'Gap_Pct', 'VIX_Close', 'Close', 'Volume']].copy()
+            mask = (df['vix_close'] > vix_threshold) & (df['Gap_Pct'] > gap_percent)
+            result_df = df[mask][['Date', 'Open', 'Prev_Close', 'Gap_Pct', 'vix_close', 'Close', 'Volume']].copy()
             
             if result_df.empty:
                 return f"No gap-ups >{gap_percent}% found when VIX>{vix_threshold}"
@@ -70,7 +71,7 @@ class AITradingAnalyzer:
             # Format result
             text = f"Found {len(result_df)} instances of gap-up >{gap_percent}% when VIX>{vix_threshold}:\n\n"
             for idx, row in result_df.iterrows():
-                text += f"📅 {row['Date'].date()}: Gap {row['Gap_Pct']:+.2f}% (VIX={row['VIX_Close']:.2f}, Open={row['Open']:.2f}, Close={row['Close']:.2f})\n"
+                text += f"📅 {row['Date'].date()}: Gap {row['Gap_Pct']:+.2f}% (VIX={row['vix_close']:.2f}, Open={row['Open']:.2f}, Close={row['Close']:.2f})\n"
             
             return text
         except Exception as e:
@@ -93,7 +94,7 @@ class AITradingAnalyzer:
             df['Prev_SMA_Diff'] = df['SMA_Diff'].shift(1)
             df['Crossover'] = (df['Prev_SMA_Diff'] < 0) & (df['SMA_Diff'] > 0)
             
-            crossovers = df[df['Crossover']][['Date', 'Close', 'SMA_Short', 'SMA_Long', 'VIX_Close']].copy()
+            crossovers = df[df['Crossover']][['Date', 'Close', 'SMA_Short', 'SMA_Long', 'vix_close']].copy()
             
             if crossovers.empty:
                 return f"No bullish crossovers ({sma_short}SMA > {sma_long}SMA) found"
@@ -101,7 +102,7 @@ class AITradingAnalyzer:
             # Format result
             text = f"Found {len(crossovers)} bullish SMA crossovers ({sma_short} crossing {sma_long} from below):\n\n"
             for idx, row in crossovers.iterrows():
-                text += f"📅 {row['Date'].date()}: SMA({sma_short})={row['SMA_Short']:.2f}, SMA({sma_long})={row['SMA_Long']:.2f}, Close={row['Close']:.2f}, VIX={row['VIX_Close']:.2f}\n"
+                text += f"📅 {row['Date'].date()}: SMA({sma_short})={row['SMA_Short']:.2f}, SMA({sma_long})={row['SMA_Long']:.2f}, Close={row['Close']:.2f}, VIX={row['vix_close']:.2f}\n"
             
             return text
         except Exception as e:
@@ -116,18 +117,18 @@ class AITradingAnalyzer:
             df = self.df.copy()
             df = df.tail(lookback_days).copy()
             
-            high_vix = df[df['VIX_Close'] > vix_threshold]
-            low_vix = df[df['VIX_Close'] <= vix_threshold]
+            high_vix = df[df['vix_close'] > vix_threshold]
+            low_vix = df[df['vix_close'] <= vix_threshold]
             
             text = f"VIX Analysis (Last {lookback_days} days, threshold={vix_threshold}):\n\n"
             text += f"Days with VIX > {vix_threshold}: {len(high_vix)}\n"
             text += f"Days with VIX ≤ {vix_threshold}: {len(low_vix)}\n"
-            text += f"VIX Range: {df['VIX_Close'].min():.2f} - {df['VIX_Close'].max():.2f}\n"
-            text += f"VIX Mean: {df['VIX_Close'].mean():.2f}\n\n"
+            text += f"VIX Range: {df['vix_close'].min():.2f} - {df['vix_close'].max():.2f}\n"
+            text += f"VIX Mean: {df['vix_close'].mean():.2f}\n\n"
             
             if not high_vix.empty:
                 text += f"High VIX Days (> {vix_threshold}):\n"
-                text += high_vix[['Date', 'VIX_Close', 'Close', 'Return_Pct']].to_string()
+                text += high_vix[['Date', 'vix_close', 'Close', 'simple_return']].to_string()
             
             return text
         except Exception as e:
@@ -257,15 +258,14 @@ def create_mcp_server():
     return mcp
 
 
-async def main():
+
+def main():
     """Run the MCP server."""
     mcp = create_mcp_server()
     logger.info("Starting AITrading MCP Server...")
-    async with mcp:
-        logger.info("Server is running. Press Ctrl+C to stop.")
-        await mcp.wait()
+    mcp.run()
+    logger.info("Server stopped.")
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

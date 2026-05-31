@@ -372,6 +372,22 @@ def build_master_dataframe(
     except Exception as e:
         logger.warning("Could not tag events: %s", e)
 
+    # ── Valuation data (PE/PB/DivYield) — optional, won't fail if absent ──
+    try:
+        from src.data.valuation_scraper import load_valuation_data
+        val_df = load_valuation_data()
+        if not val_df.empty:
+            val_df = val_df.rename(columns={"PE": "nifty_pe", "PB": "nifty_pb", "DivYield": "nifty_divy"})
+            val_df["Date"] = pd.to_datetime(val_df["Date"])
+            master = pd.merge(master, val_df[["Date", "nifty_pe", "nifty_pb", "nifty_divy"]], on="Date", how="left")
+            # Forward-fill so every trading day has a valuation figure
+            master[["nifty_pe", "nifty_pb", "nifty_divy"]] = (
+                master[["nifty_pe", "nifty_pb", "nifty_divy"]].ffill()
+            )
+            logger.info("Merged PE/PB valuation data (%d rows).", val_df.shape[0])
+    except Exception as e:
+        logger.debug("PE/PB data not merged (not yet downloaded?): %s", e)
+
     if save:
         out = PROCESSED_DATA_DIR / "master.parquet"
         master.to_parquet(out, index=False)

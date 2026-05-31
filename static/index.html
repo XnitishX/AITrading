@@ -397,6 +397,9 @@
         <button onclick="switchTab('advanced')">Advanced</button>
         <button onclick="switchTab('results')">Results</button>
         <button onclick="switchTab('predict')">Predict</button>
+        <button onclick="switchTab('leverage')">⚡ Leverage</button>
+        <button onclick="switchTab('swp')">🎲 SWP</button>
+        <button onclick="switchTab('crypto')">₿ Crypto Leverage</button>
         <button onclick="switchTab('copilot')">🤖 Copilot</button>
     </div>
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="themeBtn">🌙</button>
@@ -628,6 +631,9 @@
                 <button class="btn btn-primary" id="btnRunBacktest" onclick="runBacktest()">
                     ▶ Run Backtest
                 </button>
+                <button class="btn btn-secondary" id="btnOptimizeBacktest" onclick="optimizeStrategy()" style="background:var(--accent);color:var(--dark-bg);border:none;margin-left:10px;font-weight:600">
+                    🎯 Find Optimal Params
+                </button>
                 <span id="btSpinner" style="display:none;margin-left:12px"><span class="spinner"></span> Running…</span>
             </div>
             <div id="btResultPanel" style="display:none">
@@ -797,7 +803,810 @@
             </div>
         </div>
 
+        <!-- ═══ LEVERAGE TAB ═══ -->
+        <div class="tab-panel" id="tab-leverage">
+
+            <!-- Section A: Configuration -->
+            <div class="card">
+                <h2>⚡ Leveraged Nifty Futures — Strategy Simulator</h2>
+                <p style="font-size:13px;color:var(--text2);margin-bottom:16px">
+                    Simulates holding Nifty exposure 100% via futures (capital earns liquid-fund rate) with monthly
+                    covered calls on the futures position and quarterly 90-DTE 20%-OTM puts as crash insurance.
+                    Carry cost is driven by the historical RBI repo rate schedule.
+                </p>
+
+                <div class="form-row">
+                    <div class="form-group" style="max-width:200px">
+                        <label>Initial Capital (₹)</label>
+                        <input type="number" id="lev_capital" value="3000000" min="100000" step="100000">
+                    </div>
+                    <div class="form-group" style="max-width:150px">
+                        <label>Start Date</label>
+                        <input type="date" id="lev_start" value="2010-01-01">
+                    </div>
+                    <div class="form-group" style="max-width:150px">
+                        <label>End Date</label>
+                        <input type="date" id="lev_end" value="2024-12-31">
+                    </div>
+                    <div class="form-group" style="max-width:160px">
+                        <label>Leverage Ratio (Notional/Capital)</label>
+                        <select id="lev_ratio">
+                            <option value="1.0">1.0× (No leverage)</option>
+                            <option value="1.5">1.5×</option>
+                            <option value="2.0" selected>2.0× (100% leveraged)</option>
+                            <option value="2.5">2.5×</option>
+                            <option value="3.0">3.0×</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="max-width:200px">
+                        <label>Covered Call Strike OTM% (0 = none)</label>
+                        <select id="lev_call_otm">
+                            <option value="0.0">0% — No covered calls</option>
+                            <option value="0.025">2.5% OTM</option>
+                            <option value="0.05" selected>5.0% OTM</option>
+                            <option value="0.075">7.5% OTM</option>
+                            <option value="0.10">10.0% OTM</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="max-width:180px">
+                        <label>Protective Put OTM% (0 = none)</label>
+                        <select id="lev_put_otm">
+                            <option value="0.0">0% — No puts</option>
+                            <option value="0.10">10% OTM</option>
+                            <option value="0.20" selected>20% OTM (default)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row" style="align-items:center;gap:12px">
+                    <button class="btn btn-primary" onclick="runLeverageSim()">▶ Run Single Simulation</button>
+                    <button class="btn btn-ghost" onclick="runLeverageSweep()">🔄 Run Full Sweep</button>
+                    <button class="btn btn-ghost btn-sm" onclick="loadLeverageAssumptions()">📋 View Assumptions</button>
+                    <span id="lev_spinner" style="display:none"><span class="spinner"></span> Running…</span>
+                </div>
+
+                <!-- Realism toggles -->
+                <div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:6px;font-size:12px">
+                    <strong style="color:var(--text2)">⚙ Model Realism Settings</strong>
+                    <div class="form-row" style="margin-top:8px;gap:20px;flex-wrap:wrap">
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                            <input type="checkbox" id="lev_use_skew" checked>
+                            <span>Vol Skew <span style="color:var(--text2)">(put +15%, call −10%)</span></span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                            <input type="checkbox" id="lev_enable_tc" checked>
+                            <span>Transaction Costs <span style="color:var(--text2)">(STT + brokerage)</span></span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:6px">
+                            <span style="color:var(--text2)">Strike increment:</span>
+                            <select id="lev_strike_round" style="width:auto;padding:2px 6px;font-size:12px">
+                                <option value="50" selected>₹50 (near-month)</option>
+                                <option value="100">₹100 (far-month)</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="lev_vix_warning" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(245,158,11,0.1);border-left:3px solid var(--orange);border-radius:4px;font-size:12px;color:var(--orange)"></div>
+                <div id="lev_margin_warning" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(239,68,68,0.1);border-left:3px solid var(--red);border-radius:4px;font-size:12px;color:var(--red)"></div>
+            </div>
+
+            <!-- ─── Valuation Context Panel ──────────────────────────────── -->
+            <div class="card" id="valuation_panel" style="border-left:4px solid var(--accent)">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                    <h2 style="margin:0">📊 Market Valuation Context</h2>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <span id="val_data_date" style="font-size:11px;color:var(--text2)"></span>
+                        <button class="btn btn-ghost btn-sm" onclick="loadValuationContext()" style="padding:4px 10px;font-size:11px">↻ Refresh</button>
+                        <button class="btn btn-ghost btn-sm" onclick="syncValuationData()" style="padding:4px 10px;font-size:11px">⬇ Sync Today</button>
+                    </div>
+                </div>
+
+                <div id="val_loading" style="color:var(--text2);font-size:13px">Loading valuation data…</div>
+                <div id="val_error" style="display:none;color:var(--red);font-size:13px;padding:8px;background:rgba(239,68,68,0.08);border-radius:4px"></div>
+
+                <div id="val_content" style="display:none">
+                    <!-- Row 1: Metric Cards -->
+                    <div class="grid grid-4" style="margin-bottom:16px" id="val_metric_cards"></div>
+
+                    <!-- Row 2: Signal banner + Leverage Rec -->
+                    <div class="grid grid-2" style="margin-bottom:14px">
+                        <div id="val_signal_box" style="padding:14px;border-radius:8px;display:flex;align-items:center;gap:12px">
+                            <span id="val_signal_emoji" style="font-size:28px"></span>
+                            <div>
+                                <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em">Overall Market Signal</div>
+                                <div id="val_signal_text" style="font-size:20px;font-weight:700;margin-top:2px"></div>
+                                <div id="val_erp_text" style="font-size:12px;margin-top:4px;color:var(--text2)"></div>
+                            </div>
+                        </div>
+                        <div id="val_leverage_box" style="padding:14px;border-radius:8px">
+                            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em">Leverage Guidance</div>
+                            <div id="val_lev_value" style="font-size:26px;font-weight:700;margin:4px 0"></div>
+                            <div id="val_lev_reason" style="font-size:12px;color:var(--text2);line-height:1.5"></div>
+                        </div>
+                    </div>
+
+                    <!-- Row 3: PE History stats (when available) -->
+                    <div id="val_stats_row" style="display:none;padding:10px 14px;background:var(--surface2);border-radius:6px;font-size:12px">
+                        <strong style="color:var(--text2)">📈 Historical PE Stats</strong>
+                        <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:6px" id="val_stats_inner"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- ─────────────────────────────────────────────────────────── -->
+
+            <!-- Section B: Single Run Results -->
+            <div id="lev_single_results" style="display:none">
+                <div class="grid grid-4" style="margin-bottom:16px" id="lev_metrics_grid"></div>
+
+                <div class="card">
+                    <h2>📈 Equity Curve — Strategy vs Buy-and-Hold</h2>
+                    <div class="chart-container" style="min-height:320px">
+                        <canvas id="leverageEquityChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="grid grid-2">
+                    <div class="card">
+                        <h2>💰 P&amp;L Component Breakdown</h2>
+                        <div class="chart-container" style="min-height:280px">
+                            <canvas id="leverageCostChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>📅 Monthly Returns</h2>
+                        <div id="lev_monthly_table" style="max-height:300px;overflow-y:auto"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section C: Sweep Heatmap -->
+            <div id="lev_sweep_results" style="display:none">
+                <div class="card">
+                    <h2>🎯 Sweep Heatmap — Annualised Return % (Leverage × CC Strike)</h2>
+                    <div id="lev_heatmap_return" style="overflow-x:auto"></div>
+                </div>
+                <div class="card">
+                    <h2>🛑 Sweep Heatmap — Max Drawdown % (Leverage × CC Strike)</h2>
+                    <div id="lev_heatmap_dd" style="overflow-x:auto"></div>
+                </div>
+                <div class="card">
+                    <h2>📊 Sweep Summary Table</h2>
+                    <div style="overflow-x:auto"><table id="lev_sweep_table">
+                        <thead><tr>
+                            <th>Leverage</th><th>CC OTM%</th>
+                            <th>Ann Return%</th><th>Max DD%</th><th>Sharpe</th><th>Sortino</th><th>Calmar</th>
+                            <th>Carry Cost%</th><th>Put Cost%</th><th>CC Income%</th><th>LF Income%</th>
+                            <th>TC Cost%</th><th>Put Payouts</th><th>CC Caps</th><th>Margin⚠</th>
+                        </tr></thead>
+                        <tbody id="lev_sweep_tbody"></tbody>
+                    </table></div>
+                </div>
+            </div>
+
+            <!-- Section D: Model Assumptions -->
+            <div id="lev_assumptions_panel" style="display:none">
+                <div class="card">
+                    <h2>📋 Model Assumptions &amp; Parameters</h2>
+                    <div class="grid grid-2">
+                        <div>
+                            <h3 style="color:var(--text);margin-bottom:8px">VIX → Implied Volatility Regime</h3>
+                            <table id="lev_vix_table" style="font-size:12px">
+                                <thead><tr><th>Regime</th><th>VIX Range</th><th>IV Used</th></tr></thead>
+                                <tbody id="lev_vix_tbody"></tbody>
+                            </table>
+                        </div>
+                        <div>
+                            <h3 style="color:var(--text);margin-bottom:8px">Key Simplifications</h3>
+                            <ul id="lev_notes_list" style="font-size:12px;color:var(--text2);line-height:1.8;padding-left:16px"></ul>
+                        </div>
+                    </div>
+                    <div style="margin-top:16px">
+                        <h3 style="color:var(--text);margin-bottom:8px">RBI Repo Rate History</h3>
+                        <div class="chart-container" style="min-height:220px">
+                            <canvas id="repoRateChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- end tab-leverage -->
+
+        <!-- ═══ SWP TAB ═══ -->
+        <div class="tab-panel" id="tab-swp">
+          <div style="padding:16px">
+            <h2 style="margin-top:0">🎲 SWP Monte Carlo Simulator</h2>
+            <p style="color:#aaa;margin-top:-8px">Bucket Strategy: Equity (Nifty) + Debt. Block-bootstrap Monte Carlo over real Nifty history. Indian LTCG/income tax included.</p>
+
+            <!-- ── Quick Preset Buttons ── -->
+            <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <span style="font-size:.8em;color:#aaa">Quick start:</span>
+              <button onclick="_applyPreset('conservative')" style="background:#37474f;color:#cfd8dc;border:none;border-radius:4px;padding:5px 12px;font-size:.82em;cursor:pointer" title="Conservative: large corpus, low withdrawal, 40% equity, tax enabled">🛡 Conservative</button>
+              <button onclick="_applyPreset('balanced')" style="background:#1565c0;color:#e3f2fd;border:none;border-radius:4px;padding:5px 12px;font-size:.82em;cursor:pointer" title="Balanced: moderate corpus, 60% equity, 30yr horizon">⚖ Balanced</button>
+              <button onclick="_applyPreset('aggressive')" style="background:#2e7d32;color:#e8f5e9;border:none;border-radius:4px;padding:5px 12px;font-size:.82em;cursor:pointer" title="Aggressive: 80% equity, higher growth target, 30yr">🚀 Aggressive</button>
+            </div>
+
+            <!-- ── Parameters ── -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Total SWP savings you start with">Starting Corpus (₹)</label>
+                <input id="ret_corpus" type="number" value="10000000" min="100000" step="100000"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Proportion held in Nifty equity fund; remainder goes to debt bucket">Equity % <span id="ret_debt_pct_label" style="color:#64b5f6"></span></label>
+                <input id="ret_equity_pct" type="range" min="0" max="100" step="5" value="60"
+                  oninput="document.getElementById('ret_equity_pct_val').textContent=this.value+'%'; document.getElementById('ret_debt_pct_label').textContent='(Debt: '+(100-this.value)+'%)'"
+                  style="width:100%">
+                <span id="ret_equity_pct_val" style="font-size:.85em">60%</span>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Inflation-adjusted monthly draw in today's rupees">Monthly Withdrawal (₹)</label>
+                <input id="ret_monthly_wd" type="number" value="50000" min="1000" step="1000"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Expected annual inflation; withdrawal grows by this rate each year">Inflation Rate (% p.a.)</label>
+                <input id="ret_inflation" type="number" value="6" min="0" max="30" step="0.5"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div id="ret_debt_inst_row">
+                <label style="font-size:.8em;color:#aaa" title="Debt bucket instrument — determines interest rate relative to RBI Repo">Debt Instrument</label>
+                <select id="ret_debt_inst"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                  <option value="liquid_fund">Liquid Fund (Repo + 0.3%)</option>
+                  <option value="short_term_debt">Short-term Debt (Repo + 1.5%)</option>
+                  <option value="bank_fd">Bank FD (Repo + 0.5%)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="How many years to simulate — should match expected SWP length">Simulation Horizon (Years)</label>
+                <input id="ret_years" type="range" min="5" max="50" step="1" value="30"
+                  oninput="document.getElementById('ret_years_val').textContent=this.value+' yrs'"
+                  style="width:100%">
+                <span id="ret_years_val" style="font-size:.85em">30 yrs</span>
+              </div>
+
+              <!-- ── FIRE Mode Selector ────────────────────────────────── -->
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Choose your FIRE strategy: Classic (immediate full SWP), Coast (let corpus grow then retire), or Barista (work part-time first, then full FIRE)">FIRE Strategy</label>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px" id="ret_fire_mode_btns">
+                  <button type="button" class="fire-mode-btn fire-mode-active" data-mode="classic"
+                    onclick="_setFireMode('classic')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #555;background:#1a3a5c;color:#90caf9;cursor:pointer"
+                    title="Immediate full SWP — corpus funds all withdrawals from day one">
+                    Classic FIRE
+                  </button>
+                  <button type="button" class="fire-mode-btn" data-mode="coast"
+                    onclick="_setFireMode('coast')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #333;background:#12121f;color:#aaa;cursor:pointer"
+                    title="No withdrawals for Phase 1 — corpus grows untouched, then full SWP begins">
+                    Coast FIRE
+                  </button>
+                  <button type="button" class="fire-mode-btn" data-mode="barista"
+                    onclick="_setFireMode('barista')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #333;background:#12121f;color:#aaa;cursor:pointer"
+                    title="Reduced corpus withdrawal during Phase 1 (rest from part-time income), then full SWP">
+                    Barista FIRE
+                  </button>
+                </div>
+              </div>
+
+              <!-- Phase 1 controls (shown when mode != classic) -->
+              <div id="ret_phase1_controls" style="display:none;border-left:2px solid #2a4a6a;padding-left:10px;margin-top:2px">
+                <div style="margin-bottom:8px">
+                  <label style="font-size:.8em;color:#aaa" id="ret_phase1_label" title="Number of years before full SWP begins">Phase 1 Duration (Years)</label>
+                  <input id="ret_phase1_years" type="range" min="1" max="40" step="1" value="7"
+                    oninput="document.getElementById('ret_phase1_years_val').textContent=this.value+' yrs'"
+                    style="width:100%">
+                  <span id="ret_phase1_years_val" style="font-size:.85em">7 yrs</span>
+                </div>
+
+                <!-- Barista withdrawal (only for barista mode) -->
+                <div id="ret_barista_wd_row" style="display:none;margin-bottom:8px">
+                  <label style="font-size:.8em;color:#aaa" title="Monthly amount drawn from corpus during Barista phase (rest assumed covered by part-time income)">Barista Monthly Draw from Corpus (₹)</label>
+                  <input id="ret_barista_wd" type="number" value="20000" min="0" step="1000"
+                    style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                </div>
+
+                <!-- Monthly contribution (both coast & barista) -->
+                <div style="margin-bottom:8px">
+                  <label style="font-size:.8em;color:#aaa" title="Monthly top-up added to equity bucket during Phase 1 (e.g. salary savings). Inflates annually at inflation rate.">Monthly Contribution to Corpus (₹)</label>
+                  <input id="ret_monthly_contribution" type="number" value="0" min="0" step="1000"
+                    style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                </div>
+
+                <!-- Optional different equity% for Phase 1 -->
+                <div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                    <input id="ret_phase1_eq_toggle" type="checkbox" style="width:auto"
+                      onchange="_togglePhase1Eq(this.checked)">
+                    <label for="ret_phase1_eq_toggle" style="font-size:.82em;color:#ccc">Different equity % during Phase 1?</label>
+                  </div>
+                  <div id="ret_phase1_eq_row" style="display:none">
+                    <label style="font-size:.8em;color:#aaa">Phase 1 Equity % <span id="ret_phase1_eq_val" style="color:#90caf9">80%</span></label>
+                    <input id="ret_phase1_eq_pct" type="range" min="0" max="100" step="5" value="80"
+                      oninput="document.getElementById('ret_phase1_eq_val').textContent=this.value+'%'"
+                      style="width:100%">
+                    <div style="font-size:.7em;color:#666;margin-top:2px">At phase transition, portfolio rebalances to main equity % (taxable event if selling equity)</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ── Leveraged Nifty Option ───────────────────────────── -->
+              <div style="border:1px solid #2a2a00;border-radius:6px;padding:10px;background:#0f0f00">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <input id="ret_use_leverage" type="checkbox" style="width:auto"
+                    onchange="_toggleLeverage(this.checked)">
+                  <label for="ret_use_leverage" style="font-size:.85em;color:#ffe082;font-weight:600;cursor:pointer"
+                    title="Replace the cash/debt bucket with a leveraged Nifty futures position. The same capital acts as margin to control more Nifty exposure.">
+                    ⚡ Use Leveraged Nifty Instead of Cash
+                  </label>
+                </div>
+                <div style="font-size:.72em;color:#777;margin-bottom:6px;line-height:1.4">
+                  Replaces the debt/cash bucket with leveraged Nifty futures. Same withdrawal mechanics — higher upside and downside volatility.
+                </div>
+                <!-- Leverage controls (shown when enabled) -->
+                <div id="ret_leverage_controls" style="display:none;margin-top:8px;border-left:2px solid #b8860b;padding-left:10px">
+                  <div style="margin-bottom:8px">
+                    <label style="font-size:.8em;color:#aaa">
+                      Leverage Ratio
+                      <span id="ret_leverage_ratio_val" style="color:#ffe082;font-weight:600">2.0×</span>
+                      <span style="color:#666;font-size:.9em"> (total Nifty notional ÷ own margin)</span>
+                    </label>
+                    <input id="ret_leverage_ratio" type="range" min="1.1" max="5.0" step="0.1" value="2.0"
+                      oninput="document.getElementById('ret_leverage_ratio_val').textContent=parseFloat(this.value).toFixed(1)+'×'; _updateLeverageInfo()"
+                      style="width:100%">
+                    <div style="display:flex;justify-content:space-between;font-size:.7em;color:#555;margin-top:2px">
+                      <span>1.1× (minimal)</span><span>2× (moderate)</span><span>3× (high)</span><span>5× (max)</span>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:8px">
+                    <label style="font-size:.8em;color:#aaa"
+                      title="Gross annual borrowing/carry cost. Typically repo rate (6–6.5%) + SEBI margin cost + spread (~2–3%). Net of liquid fund earnings on collateral.">
+                      Gross Borrowing Rate (% p.a.)
+                    </label>
+                    <input id="ret_leverage_borrow" type="number" value="9.0" min="0" max="30" step="0.5"
+                      oninput="_updateLeverageInfo()"
+                      style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:6px">
+                    <div style="font-size:.7em;color:#666;margin-top:2px">
+                      Net carry cost ≈ borrow rate − liquid fund rate (e.g. 9% − 6.5% = 2.5%/yr on borrowed amount)
+                    </div>
+                  </div>
+                  <!-- Live info panel -->
+                  <div id="ret_leverage_info" style="background:#1a1a00;border:1px solid #333;border-radius:4px;padding:8px;font-size:.75em;line-height:1.7">
+                    <div style="color:#ffe082;font-weight:600;margin-bottom:4px">📊 Leverage Preview</div>
+                    <div id="ret_lev_exposure_line" style="color:#ccc"></div>
+                    <div id="ret_lev_breakeven_line" style="color:#ccc"></div>
+                    <div id="ret_lev_wipeout_line" style="color:#f44336"></div>
+                  </div>
+                  <div style="margin-top:8px;padding:6px 8px;background:#2a0000;border:1px solid #5a1a1a;border-radius:4px;font-size:.72em;color:#ef9a9a;line-height:1.5">
+                    ⚠️ <strong>High Risk:</strong> Leverage amplifies losses equally. A 2× leveraged position in a month where Nifty falls 33% wipes out the entire margin bucket.
+                    Losses are capped at 100% of margin (exchange auto-closes position). P&amp;L taxed as business income at slab rate (not LTCG).
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label id="ret_replenish_lbl" style="font-size:.8em;color:#aaa" title="Scheduled interval to top up debt bucket from equity — shorter = safer but more equity selling">Replenish Debt Every (Years)</label>
+                <input id="ret_replenish_yrs" type="number" value="5" min="1" max="20"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <!-- Replenishment Mode toggle -->
+              <div id="ret_repl_mode_row">
+                <label style="font-size:.8em;color:#aaa" title="How to size each scheduled replenishment: fill expenses, sell a fixed % of equity, or rebalance to target debt allocation">Replenishment Method</label>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px" id="ret_repl_mode_btns">
+                  <button type="button" class="repl-mode-btn repl-mode-active" data-mode="fill_years"
+                    onclick="_setReplMode('fill_years')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #555;background:#1a3a5c;color:#90caf9;cursor:pointer"
+                    title="Sell enough equity to fill the debt bucket for the next N years of inflation-adjusted expenses">
+                    Fill N Years
+                  </button>
+                  <button type="button" class="repl-mode-btn" data-mode="pct_equity"
+                    onclick="_setReplMode('pct_equity')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #333;background:#12121f;color:#aaa;cursor:pointer"
+                    title="Sell a fixed percentage of the current equity bucket value and move it to debt">
+                    % of Equity
+                  </button>
+                  <button type="button" class="repl-mode-btn" data-mode="rebalance"
+                    onclick="_setReplMode('rebalance')"
+                    style="padding:5px 4px;font-size:.75em;border-radius:4px;border:1px solid #333;background:#12121f;color:#aaa;cursor:pointer"
+                    title="Rebalance so that the debt bucket equals this % of the total portfolio value">
+                    Rebalance %
+                  </button>
+                </div>
+              </div>
+
+              <!-- Replenishment % (shown only for pct_equity / rebalance modes) -->
+              <div id="ret_repl_pct_row" style="display:none">
+                <label style="font-size:.8em;color:#aaa" id="ret_repl_pct_label"
+                  title="Percentage used for the selected replenishment mode">Replenishment % <span id="ret_repl_pct_val" style="color:#90caf9">20%</span></label>
+                <input id="ret_repl_pct" type="range" min="5" max="60" step="5" value="20"
+                  oninput="document.getElementById('ret_repl_pct_val').textContent=this.value+'%'"
+                  style="width:100%">
+                <div style="display:flex;justify-content:space-between;font-size:.7em;color:#555">
+                  <span>5%</span><span>30%</span><span>60%</span>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="If debt bucket drops below this many months of withdrawals, trigger emergency replenishment">Emergency Threshold (Months)</label>
+                <input id="ret_emerg_months" type="number" value="12" min="1" max="120"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Enable Indian LTCG tax (12.5% above ₹1.25L/FY) and debt interest income tax at your slab">Tax Rules</label>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                  <input id="ret_tax_enabled" type="checkbox" checked style="width:auto">
+                  <label for="ret_tax_enabled" style="font-size:.85em">LTCG + Income Tax</label>
+                </div>
+                <select id="ret_tax_bracket"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px;margin-top:4px">
+                  <option value="10">10% slab</option>
+                  <option value="20">20% slab</option>
+                  <option value="30" selected>30% slab</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Number of Monte Carlo paths — more = more accurate but slower">Simulations</label>
+                <select id="ret_n_sims"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                  <option value="500">500 (fast)</option>
+                  <option value="1000" selected>1,000 (default)</option>
+                  <option value="2000">2,000 (precise)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Uncheck to skip SWR + Tax Drag sub-simulations (≈3× faster)">Full Analysis</label>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+                  <input id="ret_full_analysis" type="checkbox" checked style="width:auto">
+                  <label for="ret_full_analysis" style="font-size:.82em;color:#ccc">SWR + Tax Drag sub-sims</label>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Fix seed for reproducible results; leave blank for random">Random Seed (optional)</label>
+                <input id="ret_seed" type="number" placeholder="blank = random"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Use actual historical Nifty returns from this year for the year-by-year table (MC distributions still use full bootstrap)">Starting Year <small style="color:#666">(Historical Scenario for Table)</small></label>
+                <select id="ret_starting_year"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                  <option value="">Random (MC Bootstrap)</option>
+                  <option value="2007">2007</option>
+                  <option value="2008">2008 (GFC)</option>
+                  <option value="2009">2009</option>
+                  <option value="2010">2010</option>
+                  <option value="2011">2011</option>
+                  <option value="2012">2012</option>
+                  <option value="2013">2013</option>
+                  <option value="2014">2014</option>
+                  <option value="2015">2015</option>
+                  <option value="2016">2016</option>
+                  <option value="2017">2017</option>
+                  <option value="2018">2018</option>
+                  <option value="2019">2019</option>
+                  <option value="2020">2020 (COVID)</option>
+                  <option value="2021">2021</option>
+                  <option value="2022">2022</option>
+                  <option value="2023">2023</option>
+                  <option value="2024">2024</option>
+                </select>
+              </div>
+
+            </div><!-- end params grid -->
+
+            <!-- ── Run Buttons ── -->
+            <div style="display:flex;gap:10px;margin-bottom:20px">
+              <button id="ret_run_btn" onclick="runSWPSimulation()" style="background:#1976d2;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:1em;cursor:pointer">▶ Run Simulation</button>
+              <button id="ret_opt_btn" onclick="runSWPOptimization()" style="background:#388e3c;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:1em;cursor:pointer">🔍 Find Optimal Allocation</button>
+            </div>
+
+            <!-- ── Results Panel (hidden until run) ── -->
+            <div id="ret_results" style="display:none">
+
+              <!-- Sustainability Warnings -->
+              <div id="ret_warnings" style="display:none;margin-bottom:16px"></div>
+
+              <!-- Metric Cards -->
+              <div id="ret_metric_cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
+
+              <!-- FIRE Phase Summary (Coast / Barista only) -->
+              <div id="ret_fire_phase_summary" style="display:none"></div>
+
+              <!-- Fan Chart -->
+              <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <h3 style="margin-top:0">📈 Portfolio Fan Chart (Percentile Bands)</h3>
+                <canvas id="ret_fan_chart" height="90"></canvas>
+              </div>
+
+              <!-- Survival + Ruin side by side -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+                <div style="background:#1e1e2e;padding:16px;border-radius:8px">
+                  <h3 style="margin-top:0">🛡 Survival Probability</h3>
+                  <canvas id="ret_survival_chart" height="160"></canvas>
+                </div>
+                <div style="background:#1e1e2e;padding:16px;border-radius:8px">
+                  <h3 style="margin-top:0">💀 Corpus Depletion Histogram</h3>
+                  <canvas id="ret_ruin_chart" height="160"></canvas>
+                </div>
+              </div>
+
+              <!-- Assumptions box -->
+              <div id="ret_assumptions" style="background:#12121f;padding:12px;border-radius:6px;font-size:.82em;color:#aaa;margin-bottom:16px"></div>
+
+              <!-- Year-by-Year Stats Table -->
+              <div id="ret_yearly_section" style="display:none;margin-top:8px">
+                <h3 style="margin:0 0 10px">📊 Year-by-Year Stats
+                  <span id="ret_yearly_subtitle" style="font-size:.7em;font-weight:normal;color:#aaa;margin-left:8px"></span>
+                </h3>
+                <div style="overflow-x:auto">
+                  <table id="ret_yearly_table" style="width:100%;border-collapse:collapse;font-size:.82em">
+                    <thead id="ret_yearly_thead">
+                      <tr style="background:#1a1a2e;text-align:right">
+                        <th style="text-align:left;padding:6px 8px;position:sticky;left:0;background:#1a1a2e">Yr</th>
+                        <th style="text-align:left;padding:6px 8px" id="ret_cal_yr_hdr" class="ret-cal-col">Cal Yr</th>
+                        <th style="padding:6px 8px">Equity (₹)</th>
+                        <th style="padding:6px 8px">Debt (₹)</th>
+                        <th style="padding:6px 8px">Portfolio (₹)</th>
+                        <th style="padding:6px 8px">Change %</th>
+                        <th style="padding:6px 8px">Annual WD (₹)</th>
+                        <th style="padding:6px 8px">Monthly WD (₹)</th>
+                        <th style="padding:6px 8px">Tax Paid (₹)</th>
+                        <th style="padding:6px 8px">Replenishment</th>
+                        <th style="padding:6px 8px" title="Equity market return % (adjusted for replenishment sales — shows price appreciation, not bucket change)">Eq Ret%</th>
+                        <th style="padding:6px 8px">Repl Amount (₹)</th>
+                        <th style="padding:6px 8px">WD Rate%</th>
+                      </tr>
+                    </thead>
+                    <tbody id="ret_yearly_tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- CSV Export Button -->
+              <div style="margin-top:8px;text-align:right">
+                <button onclick="_exportYearlyCSV()" style="background:#37474f;color:#cfd8dc;border:none;border-radius:4px;padding:5px 14px;font-size:.82em;cursor:pointer">⬇ Export CSV</button>
+              </div>
+
+            </div><!-- end ret_results -->
+
+            <!-- ── Optimization Panel (hidden until run) ── -->
+            <div id="ret_opt_results" style="display:none">
+              <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <h3 style="margin-top:0">🎯 Optimal Allocation Sweep</h3>
+                <canvas id="ret_opt_chart" height="90"></canvas>
+                <div id="ret_opt_recommendations" style="margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px"></div>
+              </div>
+            </div>
+          </div><!-- end padding -->
+        </div><!-- end tab-swp -->
+
+        <!-- ═══ CRYPTO LEVERAGE TAB ═══ -->
+        <div class="tab-panel" id="tab-crypto">
+          <div style="padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;margin-bottom:8px;">
+                <div>
+                    <h2 style="margin-top:0">₿ Crypto Leverage Monte Carlo Simulator</h2>
+                    <p style="color:#aaa;margin-top:-8px;margin-bottom:0px;">Block-bootstrap Monte Carlo simulator over actual cryptocurrency history from Yahoo Finance. Model survival risk, drawdowns, and leverage bounds.</p>
+                </div>
+                <div>
+                    <button class="btn btn-primary" id="btnCrySync" onclick="syncCryptoData()">
+                        🔄 Sync Latest Data
+                    </button>
+                    <span id="crySyncStatus" style="display:block;font-size:12px;color:#aaa;margin-top:4px;text-align:right;"></span>
+                </div>
+            </div>
+            
+            <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <canvas id="cry_asset_chart" style="max-height:220px;width:100%"></canvas>
+            </div>
+
+            <!-- ── Parameters ── -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Cryptocurrency to simulate">Select Crypto Asset</label>
+                <select id="cry_coin" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px" onchange="loadCryptoAssetChart()">
+                  <!-- populated dynamically -->
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Notional position size relative to capital">Leverage Ratio</label>
+                <input id="cry_leverage" type="range" min="1.0" max="5.0" step="0.5" value="2.0"
+                       oninput="document.getElementById('cry_leverage_val').textContent=this.value+'x'">
+                <span id="cry_leverage_val" style="font-size:.85em">2.0x</span>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Starting capital amount to simulate">Starting Capital ($ / ₹)</label>
+                <input id="cry_capital" type="number" value="1000000" min="1000" step="10000"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Annual interest rate charged on the borrowed portion (L - 1)">Annual Borrow Rate (% p.a.)</label>
+                <input id="cry_borrow_rate" type="number" value="10.0" min="0" max="50" step="0.5"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="How many years to simulate">Simulation Horizon (Years)</label>
+                <input id="cry_years" type="range" min="1" max="25" step="1" value="10"
+                  oninput="document.getElementById('cry_years_val').textContent=this.value+' yrs'">
+                <span id="cry_years_val" style="font-size:.85em">10 yrs</span>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Number of Monte Carlo paths to generate">Monte Carlo Paths</label>
+                <select id="cry_simulations" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                  <option value="500">500 Paths (Fast)</option>
+                  <option value="1000" selected>1,000 Paths (Balanced)</option>
+                  <option value="2000">2,000 Paths (Thorough)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="Block size in months for bootstrapping to keep cycles consistent">Block Size (Months)</label>
+                <input id="cry_block_size" type="number" value="6" min="1" max="36" step="1"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+              <div>
+                <label style="font-size:.8em;color:#aaa" title="NAV drawdown percentage at which position is liquidated (0 means NAV <= 0)">Liquidation Threshold (% of NAV)</label>
+                <input id="cry_liq_thresh" type="number" value="0.0" min="0.0" max="90.0" step="5.0"
+                  style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+              </div>
+
+            </div><!-- end params grid -->
+
+            <!-- ── Run Buttons ── -->
+            <div style="display:flex;gap:10px;margin-bottom:20px">
+              <button id="cry_run_btn" onclick="runCryptoSimulation()" style="background:#1976d2;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:1em;cursor:pointer">▶ Run Simulation</button>
+              <button id="cry_sweep_btn" onclick="runCryptoSweep()" style="background:#388e3c;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:1em;cursor:pointer">🔍 Run Leverage Sweep</button>
+            </div>
+
+            <!-- ── Results Panel (hidden until run) ── -->
+            <div id="cry_results" style="display:none">
+
+              <!-- Warning Box -->
+              <div id="cry_warnings" style="display:none;background:#2a0a0a;border-left:4px solid #f44336;padding:12px;border-radius:6px;font-size:.9em;margin-bottom:16px;color:#ff8a80"></div>
+
+              <!-- Metric Cards -->
+              <div id="cry_metric_cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px"></div>
+
+              <!-- Fan Chart -->
+              <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <h3 style="margin-top:0">📈 Equity Curve Fan Chart (Percentile Bands)</h3>
+                <canvas id="cry_fan_chart" height="90"></canvas>
+              </div>
+
+              <!-- Survival + Ruin side by side -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+                <div style="background:#1e1e2e;padding:16px;border-radius:8px">
+                  <h3 style="margin-top:0">🛡 Survival Probability</h3>
+                  <canvas id="cry_survival_chart" height="160"></canvas>
+                </div>
+                <div style="background:#1e1e2e;padding:16px;border-radius:8px">
+                  <h3 style="margin-top:0">💀 Liquidation Histogram</h3>
+                  <canvas id="cry_ruin_chart" height="160"></canvas>
+                </div>
+              </div>
+
+              <!-- Year-by-Year Stats Table -->
+              <div id="cry_yearly_section" style="display:none;margin-top:8px">
+                <h3 style="margin:0 0 10px">📊 Year-by-Year Stats (Median Representative Path)</h3>
+                <div style="overflow-x:auto">
+                  <table id="cry_yearly_table" style="width:100%;border-collapse:collapse;font-size:.82em">
+                    <thead>
+                      <tr style="background:#1a1a2e;text-align:right">
+                        <th style="text-align:left;padding:6px 8px">Year</th>
+                        <th style="text-align:right;padding:6px 8px">Portfolio Value</th>
+                        <th style="text-align:right;padding:6px 8px">Yearly Return %</th>
+                        <th style="text-align:right;padding:6px 8px">Borrow Cost Paid</th>
+                        <th style="text-align:left;padding:6px 8px">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cry_yearly_tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div><!-- end cry_results -->
+
+            <!-- ── Sweep Panel (hidden until run) ── -->
+            <div id="cry_sweep_results" style="display:none">
+              <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <h3 style="margin-top:0">🎯 Optimal Leverage Sweep Result</h3>
+                <div style="overflow-x:auto">
+                  <table id="cry_sweep_table" style="width:100%;border-collapse:collapse;font-size:.85em;text-align:right">
+                    <thead>
+                      <tr style="background:#1a1a2e">
+                        <th style="text-align:left;padding:8px">Leverage Ratio</th>
+                        <th style="padding:8px">5-Yr Survival %</th>
+                        <th style="padding:8px">10-Yr Survival %</th>
+                        <th style="padding:8px">20-Yr Survival %</th>
+                        <th style="padding:8px">Median CAGR %</th>
+                        <th style="padding:8px">Total Liquidation Rate %</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cry_sweep_tbody"></tbody>
+                  </table>
+                </div>
+                <div id="cry_sweep_recommendation" style="margin-top:14px;background:#12121f;padding:14px;border-radius:6px;font-size:.9em"></div>
+              </div>
+            </div>
+
+
+            <!-- ── Crypto Backtester ── -->
+            <hr style="border:0;border-top:1px solid #333;margin:30px 0">
+            <h2 style="margin-top:0">📊 Crypto Trading Backtester</h2>
+            
+            <div style="background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <div class="form-row">
+                    <div class="form-group" style="flex:2">
+                        <label style="color:#aaa">Strategy Type</label>
+                        <select id="cryBtStrategyType" onchange="updateCryStrategyParams()" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                        </select>
+                        <div id="cryStrategyDesc" style="font-size:12px; color:var(--text2); margin-top:4px;"></div>
+                    </div>
+                </div>
+                <div id="cryBtParamsContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px;margin-bottom:12px;"></div>
+                
+                <div style="display:flex;gap:12px;margin-top:16px;">
+                    <div style="flex:1">
+                        <label style="color:#aaa">Initial Capital</label>
+                        <input id="cryBtCapital" type="number" value="10000" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                    </div>
+                    <div style="flex:1">
+                        <label style="color:#aaa">Position Size %</label>
+                        <input id="cryBtPositionSize" type="number" value="10" min="1" max="100" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                    </div>
+                    <div style="flex:1">
+                        <label style="color:#aaa">Stop Loss %</label>
+                        <input id="cryBtStopLoss" type="number" value="5" min="0" step="0.5" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                    </div>
+                    <div style="flex:1">
+                        <label style="color:#aaa">Take Profit %</label>
+                        <input id="cryBtTakeProfit" type="number" value="10" min="0" step="0.5" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+                    </div>
+                </div>
+
+                <div style="margin-top:20px;">
+                    <button class="btn btn-primary" onclick="runCryBacktest()" id="btnCryRunBacktest">
+                        ▶ Run Crypto Backtest
+                    </button>
+                    <span id="cryBtSpinner" class="spinner" style="display:none;margin-left:10px;">↻ Running...</span>
+                </div>
+            </div>
+
+            <!-- RESULT PANEL -->
+            <div id="cryBtResultPanel" style="display:none; background:#1e1e2e;padding:16px;border-radius:8px;margin-bottom:16px">
+                <h3 style="margin-top:0">📈 Backtest Results</h3>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px" id="cryBtStats"></div>
+                <div style="margin-bottom:20px">
+                    <canvas id="cryEquityChart" style="max-height:250px;width:100%"></canvas>
+                </div>
+            </div>
+
+          </div><!-- end padding -->
+        </div><!-- end tab-crypto -->
+
         <!-- ═══ COPILOT TAB ═══ -->
+
         <div class="tab-panel" id="tab-copilot">
             <div class="copilot-container">
                 <div id="llmStatusBanner" style="display:none; padding:8px 12px; margin-bottom:8px; border-radius:6px; font-size:0.85em;"></div>
@@ -866,6 +1675,9 @@ function switchTab(tab) {
     if (tab === 'backtest') loadBacktestStrategies();
     if (tab === 'advanced') { updateWFParams(); }
     if (tab === 'results') loadResults();
+    if (tab === 'leverage') loadValuationContext();
+    if (tab === 'swp') initSWPTab();
+    if (tab === 'crypto') initCryptoTab();
 }
 
 // ───── Toast Notifications ──────────────────────────────
@@ -1083,7 +1895,7 @@ function renderPriceChart(data) {
                     callbacks: {
                         label: function(ctx) {
                             if (ctx.dataset.yAxisID === 'yNifty') return 'Nifty: ₹' + ctx.parsed.y.toLocaleString();
-                            return 'VIX: ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : 'N/A');
+                            return 'VIX: ' + (ctx.parsed.y != null ? (ctx.parsed.y || 0).toFixed(2) : 'N/A');
                         }
                     }
                 }
@@ -1331,7 +2143,7 @@ function renderStrategyDetailResult(r) {
     document.getElementById('stratDetailStats').innerHTML = `
         <div class="stat"><div class="label">Initial Capital</div><div class="value">₹${ic.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div class="sub">₹10,00,000</div></div>
         <div class="stat"><div class="label">Final Capital</div><div class="value ${retClass}">₹${fc.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div class="sub ${pnlClass}">${pnl>=0?'+':''}₹${pnl.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct>=0?'+':''}${r.total_return_pct.toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct>=0?'+':''}${(r.total_return_pct || 0).toFixed(2)}%</div></div>
         <div class="stat"><div class="label">Annual Return</div><div class="value ${r.annual_return_pct>=0?'positive':'negative'}">${r.annual_return_pct>=0?'+':''}${(r.annual_return_pct||0).toFixed(2)}%</div></div>
     `;
 
@@ -1343,11 +2155,17 @@ function renderStrategyDetailResult(r) {
             <div class="stat"><div class="label">Profit Factor</div><div class="value">${(r.profit_factor||0).toFixed(2)}</div></div>
             <div class="stat"><div class="label">Avg Trade PnL</div><div class="value">₹${(r.avg_trade_pnl||0).toFixed(2)}</div></div>
         </div>
-        <div class="grid grid-4">
+        <div class="grid grid-4" style="margin-bottom:12px">
             <div class="stat"><div class="label">Total Trades</div><div class="value">${r.total_trades||0}</div></div>
             <div class="stat"><div class="label">Winning Trades</div><div class="value positive">${r.winning_trades||0}</div></div>
             <div class="stat"><div class="label">Losing Trades</div><div class="value negative">${r.losing_trades||0}</div></div>
             <div class="stat"><div class="label">Win Rate</div><div class="value">${(r.win_rate_pct||0).toFixed(1)}%</div></div>
+        </div>
+        <div class="grid grid-4">
+            <div class="stat"><div class="label">Max Consec Wins</div><div class="value positive">${r.max_consecutive_wins||0}</div></div>
+            <div class="stat"><div class="label">Max Consec Losses</div><div class="value negative">${r.max_consecutive_losses||0}</div></div>
+            <div class="stat"><div class="label">Win Streak (Days)</div><div class="value positive">${r.max_consecutive_win_days||0}d</div></div>
+            <div class="stat"><div class="label">Loss Streak (Days)</div><div class="value negative">${r.max_consecutive_loss_days||0}d</div></div>
         </div>
         <div style="margin-top:12px;padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2)">
             Data range: ${r.data_start || 'N/A'} → ${r.data_end || 'N/A'} &nbsp;|&nbsp; Run ID: #${r.run_id}
@@ -1358,20 +2176,58 @@ function renderStrategyDetailResult(r) {
     if (r.equity_curve && r.equity_curve.length) {
         const ctx = document.getElementById('stratDetailEquityChart').getContext('2d');
         if (stratDetailChartInstance) stratDetailChartInstance.destroy();
+        
+        const dateToIndex = {};
+        r.equity_curve.forEach((e, idx) => dateToIndex[e.Date] = idx);
+
+        const entryMarkerData = Array(r.equity_curve.length).fill(null);
+        const exitMarkerData = Array(r.equity_curve.length).fill(null);
+
+        (r.trades || []).forEach(t => {
+            const entryIdx = dateToIndex[t.entry_date];
+            if (entryIdx !== undefined) entryMarkerData[entryIdx] = r.equity_curve[entryIdx].equity;
+            const exitIdx = dateToIndex[t.exit_date];
+            if (exitIdx !== undefined) exitMarkerData[exitIdx] = r.equity_curve[exitIdx].equity;
+        });
+        
         stratDetailChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: r.equity_curve.map(e => e.Date),
-                datasets: [{
-                    label: 'Portfolio Value (₹)',
-                    data: r.equity_curve.map(e => e.equity),
-                    borderColor: r.total_return_pct >= 0 ? '#22c55e' : '#ef4444',
-                    backgroundColor: r.total_return_pct >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                    fill: true,
-                    borderWidth: 2,
-                    pointRadius: 0,
-                    tension: 0.1,
-                }],
+                datasets: [
+                    {
+                        label: 'Portfolio Value (₹)',
+                        data: r.equity_curve.map(e => e.equity),
+                        borderColor: r.total_return_pct >= 0 ? '#22c55e' : '#ef4444',
+                        backgroundColor: r.total_return_pct >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                        fill: true,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1,
+                    },
+                    {
+                        label: 'Buy / Entry',
+                        data: entryMarkerData,
+                        borderColor: '#22c55e',
+                        backgroundColor: '#22c55e',
+                        pointStyle: 'triangle',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        showLine: false,
+                        fill: false
+                    },
+                    {
+                        label: 'Sell / Exit',
+                        data: exitMarkerData,
+                        borderColor: '#f97316',
+                        backgroundColor: '#f97316',
+                        pointStyle: 'rectRot',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        showLine: false,
+                        fill: false
+                    }
+                ],
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
@@ -1405,7 +2261,7 @@ function renderStrategyDetailResult(r) {
                 <td>${t.entry_date}</td><td>₹${t.entry_price.toLocaleString()}</td>
                 <td>${t.exit_date}</td><td>₹${(t.exit_price||0).toLocaleString()}</td>
                 <td><span class="tag ${t.direction==='long'?'tag-green':'tag-red'}">${t.direction}</span></td>
-                <td class="${pnlClass}">₹${t.pnl.toFixed(2)}</td>
+                <td class="${pnlClass}">₹${(t.pnl || 0).toFixed(2)}</td>
                 <td><span class="tag tag-orange">${t.exit_reason}</span></td>
             </tr>`;
         });
@@ -1449,7 +2305,7 @@ async function fetchStrategyRegistry() {
         
         STRATEGY_REGISTRY = data;
 
-        const selects = ['btStrategyType', 'advWfStrategy', 'advSweepStrategy'];
+        const selects = ['btStrategyType', 'advWfStrategy', 'advSweepStrategy', 'cryBtStrategyType'];
         selects.forEach(selId => {
             const select = document.getElementById(selId);
             if (select) {
@@ -1457,6 +2313,7 @@ async function fetchStrategyRegistry() {
             }
         });
         updateStrategyParams();
+        updateCryStrategyParams();
     } catch (e) {
         console.error(e);
     }
@@ -1479,13 +2336,14 @@ function updateStrategyParams() {
         if (m) defaultVal = m[1];
         
         return `
-        <div class="form-group" style="margin-bottom:8px">
-            <label>${name} <span title="${desc}" style="cursor:help; color:var(--accent);">ⓘ</span></label>
-            <input type="text" 
-                   id="btParam_${name}" 
-                   value="${defaultVal}"
-                   style="width:100%">
-        </div>
+                  <div class="form-group" style="margin-bottom:12px">
+              <label>${name} <span title="${desc}" style="cursor:help; color:var(--accent);">&#9432;</span></label>
+              <div style="font-size:0.75em; color:#8b8fa3; margin-bottom:4px; line-height:1.3">${desc}</div>
+              <input type="text" 
+                     id="btParam_${name}" 
+                     value="${defaultVal}"
+                     style="width:100%">
+          </div>
         `;
     }).join('');
 }
@@ -1504,6 +2362,62 @@ function getCustomStrategyParams() {
         }
     });
     return params;
+}
+
+async function optimizeStrategy() {
+    const btn = document.getElementById('btnOptimizeBacktest');
+    const bRun = document.getElementById('btnRunBacktest');
+    const spinner = document.getElementById('btSpinner');
+    btn.disabled = true;
+    bRun.disabled = true;
+    spinner.style.display = 'inline';
+    
+    // Dynamically update spinner text
+    const textNode = Array.from(spinner.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
+    if (textNode) textNode.textContent = ' Optimising (evaluating parameters)…';
+
+    try {
+        const payload = {
+            initial_capital: parseFloat(document.getElementById('btCapital').value),
+            position_size_pct: parseFloat(document.getElementById('btPositionSize').value),
+            stop_loss_pct: parseFloat(document.getElementById('btStopLoss').value),
+            take_profit_pct: parseFloat(document.getElementById('btTakeProfit').value),
+            trailing_stop_pct: parseFloat(document.getElementById('btTrailingStop').value || 0),
+            max_holding_bars: parseInt(document.getElementById('btMaxHold').value || 0),
+            cooldown_bars: parseInt(document.getElementById('btCooldown').value || 0),
+            start_date: document.getElementById('btStartDate').value || null,
+            end_date: document.getElementById('btEndDate').value || null,
+            commission_pct: parseFloat(document.getElementById('btCommission').value || 0),
+            slippage_pct: parseFloat(document.getElementById('btSlippage').value || 0),
+            strategy_type: document.getElementById('btStrategyType').value,
+            params: getCustomStrategyParams()
+        };
+
+        const result = await api('/api/backtest/optimize', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+
+        // Map best params back to input fields
+        if (result.best_params) {
+            Object.entries(result.best_params).forEach(([name, val]) => {
+                const el = document.getElementById(`btParam_${name}`);
+                if (el) el.value = val;
+            });
+        }
+
+        renderBacktestResult(result.best_result);
+        const pDesc = Object.entries(result.best_params).map(([k,v]) => `${k}=${v}`).join(', ');
+        toast(`Optimized across ${result.evaluated_combinations} runs! Best parameters applied.`);
+    } catch (e) {
+        console.error(e);
+        toast(e.message || 'Optimization failed', 'error');
+    } finally {
+        btn.disabled = false;
+        bRun.disabled = false;
+        spinner.style.display = 'none';
+        if (textNode) textNode.textContent = ' Running…';
+    }
 }
 
 async function runBacktest() {
@@ -1547,22 +2461,22 @@ function renderBacktestResult(r) {
     // Stats — enhanced with new risk metrics
     const retClass = r.total_return_pct >= 0 ? 'positive' : 'negative';
     document.getElementById('btStats').innerHTML = `
-        <div class="stat"><div class="label">Final Capital</div><div class="value ${retClass}">₹${r.final_capital.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct >= 0 ? '+' : ''}${r.total_return_pct.toFixed(2)}%</div></div>
-        <div class="stat"><div class="label">Sharpe Ratio</div><div class="value">${r.sharpe_ratio.toFixed(2)}</div></div>
-        <div class="stat"><div class="label">Max Drawdown</div><div class="value negative">${r.max_drawdown_pct.toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Final Capital</div><div class="value ${retClass}">₹${(r.final_capital != null ? r.final_capital : 0).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+        <div class="stat"><div class="label">Total Return</div><div class="value ${retClass}">${r.total_return_pct >= 0 ? '+' : ''}${(r.total_return_pct||0).toFixed(2)}%</div></div>
+        <div class="stat"><div class="label">Sharpe Ratio</div><div class="value">${(r.sharpe_ratio||0).toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Max Drawdown</div><div class="value negative">${(r.max_drawdown_pct||0).toFixed(2)}%</div></div>
         <div class="stat"><div class="label">Total Trades</div><div class="value">${r.total_trades}</div></div>
-        <div class="stat"><div class="label">Win Rate</div><div class="value">${r.win_rate_pct.toFixed(1)}%</div></div>
-        <div class="stat"><div class="label">Profit Factor</div><div class="value">${r.profit_factor.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Win Rate</div><div class="value">${(r.win_rate_pct||0).toFixed(1)}%</div></div>
+        <div class="stat"><div class="label">Profit Factor</div><div class="value">${((r.profit_factor!=null?r.profit_factor:0) || 0).toFixed(2)}</div></div>
         <div class="stat"><div class="label">Sortino</div><div class="value">${(r.sortino_ratio||0).toFixed(2)}</div></div>
     `;
     // Extra risk metrics row
-    const omg = r.omega_ratio != null ? r.omega_ratio.toFixed(2) : 'N/A';
-    const var95 = r.value_at_risk_95 != null ? r.value_at_risk_95.toFixed(2) + '%' : 'N/A';
-    const cvar = r.cvar_95 != null ? r.cvar_95.toFixed(2) + '%' : 'N/A';
-    const rmul = r.avg_r_multiple != null ? r.avg_r_multiple.toFixed(2) : 'N/A';
-    const mae = r.avg_mae_pct != null ? r.avg_mae_pct.toFixed(2) + '%' : 'N/A';
-    const mfe = r.avg_mfe_pct != null ? r.avg_mfe_pct.toFixed(2) + '%' : 'N/A';
+    const omg = r.omega_ratio != null ? (r.omega_ratio || 0).toFixed(2) : 'N/A';
+    const var95 = r.value_at_risk_95 != null ? (r.value_at_risk_95 || 0).toFixed(2) + '%' : 'N/A';
+    const cvar = r.cvar_95 != null ? (r.cvar_95 || 0).toFixed(2) + '%' : 'N/A';
+    const rmul = r.avg_r_multiple != null ? (r.avg_r_multiple || 0).toFixed(2) : 'N/A';
+    const mae = r.avg_mae_pct != null ? (r.avg_mae_pct || 0).toFixed(2) + '%' : 'N/A';
+    const mfe = r.avg_mfe_pct != null ? (r.avg_mfe_pct || 0).toFixed(2) + '%' : 'N/A';
     document.getElementById('btStats').innerHTML += `
         <div class="stat"><div class="label">Omega Ratio</div><div class="value">${omg}</div></div>
         <div class="stat"><div class="label">VaR (95%)</div><div class="value negative">${var95}</div></div>
@@ -1572,6 +2486,10 @@ function renderBacktestResult(r) {
         <div class="stat"><div class="label">Avg MFE</div><div class="value positive">${mfe}</div></div>
         <div class="stat"><div class="label">Calmar</div><div class="value">${(r.calmar_ratio||0).toFixed(2)}</div></div>
         <div class="stat"><div class="label">Exposure</div><div class="value">${(r.exposure_time_pct||0).toFixed(1)}%</div></div>
+        <div class="stat" title="How many winning trades in a row"><div class="label">Max Consec Wins (Trades)</div><div class="value positive">${r.max_consecutive_wins || 0}</div></div>
+        <div class="stat" title="How many losing trades in a row"><div class="label">Max Consec Losses (Trades)</div><div class="value negative">${r.max_consecutive_losses || 0}</div></div>
+        <div class="stat" title="How many days in a row portfolio value increased"><div class="label">Max Win Streak (Days)</div><div class="value positive">${r.max_consecutive_win_days || 0}d</div></div>
+        <div class="stat" title="How many days in a row portfolio value decreased"><div class="label">Max Loss Streak (Days)</div><div class="value negative">${r.max_consecutive_loss_days || 0}d</div></div>
     `;
 
     // Equity curve
@@ -1580,7 +2498,27 @@ function renderBacktestResult(r) {
         if (equityChartInstance) {
             equityChartInstance.destroy();
         }
-        // ... build dataset code above remains
+        
+        // Extract Entry and Exit markers
+        const dateToIndex = {};
+        r.equity_curve.forEach((e, idx) => {
+            dateToIndex[e.Date] = idx;
+        });
+
+        const entryMarkerData = Array(r.equity_curve.length).fill(null);
+        const exitMarkerData = Array(r.equity_curve.length).fill(null);
+
+        r.trades.forEach(t => {
+            const entryIdx = dateToIndex[t.entry_date];
+            if (entryIdx !== undefined) {
+                entryMarkerData[entryIdx] = r.equity_curve[entryIdx].equity;
+            }
+            const exitIdx = dateToIndex[t.exit_date];
+            if (exitIdx !== undefined) {
+                exitMarkerData[exitIdx] = r.equity_curve[exitIdx].equity;
+            }
+        });
+
         const datasets = [{
             label: 'Strategy',
             data: r.equity_curve.map(e => e.equity),
@@ -1609,6 +2547,33 @@ function renderBacktestResult(r) {
             });
         }
 
+        // Add visual entry/exit markers
+        datasets.push({
+            label: 'Buy / Entry',
+            data: entryMarkerData,
+            borderColor: '#22c55e',
+            backgroundColor: '#22c55e',
+            pointStyle: 'triangle',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            fill: false,
+            yAxisID: 'y'
+        });
+
+        datasets.push({
+            label: 'Sell / Exit',
+            data: exitMarkerData,
+            borderColor: '#f97316',
+            backgroundColor: '#f97316',
+            pointStyle: 'rectRot',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false,
+            fill: false,
+            yAxisID: 'y'
+        });
+
         equityChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
@@ -1619,7 +2584,41 @@ function renderBacktestResult(r) {
                 responsive: true, maintainAspectRatio: false,
                 plugins: { 
                     legend: { display: true, position: 'top', labels: { color: 'var(--text)' } },
-                    tooltip: { mode: 'index', intersect: false }
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null && context.parsed.y !== undefined) {
+                                    label += '₹' + context.parsed.y.toLocaleString(undefined, {maximumFractionDigits: 0});
+                                }
+                                
+                                if (context.dataset.label === 'Buy / Entry' && context.parsed.y !== null && context.parsed.y !== undefined) {
+                                    const idx = context.dataIndex;
+                                    const date = r.equity_curve[idx].Date;
+                                    const tradesAtDate = r.trades.filter(t => t.entry_date === date);
+                                    if (tradesAtDate.length) {
+                                        const t = tradesAtDate[0];
+                                        label += ` (Price: ₹${t.entry_price.toLocaleString()} | ${t.direction.toUpperCase()})`;
+                                    }
+                                } else if (context.dataset.label === 'Sell / Exit' && context.parsed.y !== null && context.parsed.y !== undefined) {
+                                    const idx = context.dataIndex;
+                                    const date = r.equity_curve[idx].Date;
+                                    const tradesAtDate = r.trades.filter(t => t.exit_date === date);
+                                    if (tradesAtDate.length) {
+                                        const t = tradesAtDate[0];
+                                        const pnlSign = t.pnl >= 0 ? '+' : '';
+                                        label += ` (Price: ₹${t.exit_price.toLocaleString()} | PnL: ${pnlSign}₹${t.pnl.toLocaleString()} | ${t.exit_reason})`;
+                                    }
+                                }
+                                return label;
+                            }
+                        }
+                    }
                 },
                 scales: {
                     x: { ticks: { maxTicksLimit: 8, color: '#8b8fa3' }, grid: { color: '#2d3148' } },
@@ -1640,12 +2639,12 @@ function renderBacktestResult(r) {
             const pnlClass = t.pnl >= 0 ? 'positive' : 'negative';
             const mae = t.mae != null ? (t.mae * 100).toFixed(2) + '%' : '-';
             const mfe = t.mfe != null ? (t.mfe * 100).toFixed(2) + '%' : '-';
-            const rmul = t.r_multiple != null ? t.r_multiple.toFixed(2) : '-';
+            const rmul = t.r_multiple != null ? (t.r_multiple || 0).toFixed(2) : '-';
             html += `<tr>
                 <td>${t.entry_date}</td><td>₹${t.entry_price.toLocaleString()}</td>
                 <td>${t.exit_date}</td><td>₹${(t.exit_price||0).toLocaleString()}</td>
                 <td><span class="tag ${t.direction==='long'?'tag-green':'tag-red'}">${t.direction}</span></td>
-                <td class="${pnlClass}">₹${t.pnl.toFixed(2)}</td>
+                <td class="${pnlClass}">₹${(t.pnl || 0).toFixed(2)}</td>
                 <td class="negative">${mae}</td>
                 <td class="positive">${mfe}</td>
                 <td>${rmul}</td>
@@ -1672,12 +2671,12 @@ async function loadResults() {
         html += `<tr>
             <td>${r.id}</td>
             <td><strong>${r.strategy_name}</strong></td>
-            <td class="${retClass}">${r.total_return >= 0 ? '+' : ''}${r.total_return.toFixed(2)}%</td>
-            <td>${r.sharpe_ratio.toFixed(2)}</td>
-            <td class="negative">${r.max_drawdown.toFixed(2)}%</td>
+            <td class="${retClass}">${r.total_return >= 0 ? '+' : ''}${(r.total_return || 0).toFixed(2)}%</td>
+            <td>${(r.sharpe_ratio || 0).toFixed(2)}</td>
+            <td class="negative">${(r.max_drawdown || 0).toFixed(2)}%</td>
             <td>${r.total_trades}</td>
-            <td>${r.win_rate.toFixed(1)}%</td>
-            <td>${r.profit_factor.toFixed(2)}</td>
+            <td>${(r.win_rate || 0).toFixed(1)}%</td>
+            <td>${(r.profit_factor || 0).toFixed(2)}</td>
             <td>${r.run_at ? r.run_at.slice(0,10) : ''}</td>
             <td>
                 <button class="btn btn-sm btn-ghost" onclick="viewRun(${r.id})">View</button>
@@ -1749,8 +2748,8 @@ function renderPrediction(r) {
     // Enhanced current stats
     const changeColor = r.current_vix && r.current_vix > 25 ? 'var(--red)' : r.current_vix && r.current_vix < 15 ? 'var(--green)' : 'var(--orange)';
     document.getElementById('predCurrentStats').innerHTML = `
-        <div class="stat"><div class="label">Current Price</div><div class="value">₹${r.current_price.toLocaleString()}</div><div class="sub">As of ${r.as_of_date}</div></div>
-        <div class="stat"><div class="label">India VIX</div><div class="value" style="color:${changeColor}">${r.current_vix ? r.current_vix.toFixed(2) : 'N/A'}</div><div class="sub">Regime: <strong>${r.vix_regime}</strong></div></div>
+        <div class="stat"><div class="label">Current Price</div><div class="value">₹${(r.current_price != null ? r.current_price : 0).toLocaleString()}</div><div class="sub">As of ${r.as_of_date}</div></div>
+        <div class="stat"><div class="label">India VIX</div><div class="value" style="color:${changeColor}">${r.current_vix ? (r.current_vix || 0).toFixed(2) : 'N/A'}</div><div class="sub">Regime: <strong>${r.vix_regime}</strong></div></div>
         <div class="stat"><div class="label">Method</div><div class="value" style="font-size:16px">${document.getElementById('predMethod').value}</div><div class="sub">Simulations: ${document.getElementById('predSims').value}</div></div>
     `;
 
@@ -1811,7 +2810,7 @@ function renderProjectionCandles(data) {
         div.style.cssText = 'background:var(--bg3);border-radius:12px;padding:16px;';
         div.innerHTML = `
             <div style="font-weight:600;margin-bottom:8px">${horizonNames[key] || key} (${info.horizon_days}d)</div>
-            <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Current: ₹${info.current_price.toLocaleString()} · Vol: ${(info.annual_vol * 100).toFixed(1)}%</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Current: ₹${info.current_price.toLocaleString()} · Vol: ${((info.annual_vol * 100) || 0).toFixed(1)}%</div>
             <div style="height:220px"><canvas id="${canvasId}"></canvas></div>
         `;
         container.appendChild(div);
@@ -1887,11 +2886,11 @@ function renderProjectionCandles(data) {
                                 const i = c.dataIndex;
                                 const cd = candles[i];
                                 return [
-                                    `O: ₹${cd.open.toFixed(0)}`,
-                                    `H: ₹${cd.high.toFixed(0)}`,
-                                    `L: ₹${cd.low.toFixed(0)}`,
-                                    `C: ₹${cd.close.toFixed(0)}`,
-                                    `90%CI: ₹${cd.lower_90.toFixed(0)} – ${cd.upper_90.toFixed(0)}`,
+                                    `O: ₹${(cd.open || 0).toFixed(0)}`,
+                                    `H: ₹${(cd.high || 0).toFixed(0)}`,
+                                    `L: ₹${(cd.low || 0).toFixed(0)}`,
+                                    `C: ₹${(cd.close || 0).toFixed(0)}`,
+                                    `90%CI: ₹${(cd.lower_90 || 0).toFixed(0)} – ${(cd.upper_90 || 0).toFixed(0)}`,
                                 ];
                             }
                         }
@@ -1935,7 +2934,7 @@ function renderAccuracy(data) {
                 <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Direction accuracy</div>
                 <div style="display:flex;height:18px;border-radius:4px;overflow:hidden">
                     <div style="width:${m.direction_accuracy_pct}%;background:var(--green);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${m.direction_accuracy_pct}%</div>
-                    <div style="width:${100-m.direction_accuracy_pct}%;background:var(--red);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${(100-m.direction_accuracy_pct).toFixed(1)}%</div>
+                    <div style="width:${100-m.direction_accuracy_pct}%;background:var(--red);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${((100-m.direction_accuracy_pct) || 0).toFixed(1)}%</div>
                 </div>
             </div>
         </div>`;
@@ -1955,9 +2954,9 @@ function renderAccuracy(data) {
             const errClass = Math.abs(r.pct_error) < 2 ? 'positive' : Math.abs(r.pct_error) < 5 ? '' : 'negative';
             detailHtml += `<tr>
                 <td>${r.date}</td>
-                <td>₹${r.price_at_prediction.toLocaleString()}</td>
-                <td>₹${r.actual_price.toLocaleString()}</td>
-                <td>₹${r.predicted_mean.toLocaleString()}</td>
+                <td>₹${(r.price_at_prediction != null ? r.price_at_prediction : 0).toLocaleString()}</td>
+                <td>₹${(r.actual_price != null ? r.actual_price : 0).toLocaleString()}</td>
+                <td>₹${(r.predicted_mean != null ? r.predicted_mean : 0).toLocaleString()}</td>
                 <td>${r.predicted_prob_up}%</td>
                 <td>${dirIcon}</td>
                 <td>${ciIcon}</td>
@@ -2089,7 +3088,7 @@ async function loadHeatmap() {
                 } else {
                     const intensity = Math.min(Math.abs(val) / 10, 1).toFixed(2);
                     const cls = val >= 0 ? 'hm-pos' : 'hm-neg';
-                    html += `<td class="${cls}" style="--hm-a:${intensity}">${val > 0 ? '+' : ''}${val.toFixed(1)}</td>`;
+                    html += `<td class="${cls}" style="--hm-a:${intensity}">${val > 0 ? '+' : ''}${(val || 0).toFixed(1)}</td>`;
                 }
             });
             html += '</tr>';
@@ -2174,9 +3173,9 @@ async function runWalkForward() {
         const verdictColor = result.verdict.includes('Low') ? 'var(--green)' : result.verdict.includes('Moderate') ? 'var(--orange)' : 'var(--red)';
         let html = `
             <div class="grid grid-4" style="margin-bottom:16px">
-                <div class="stat"><div class="label">Avg Train Return</div><div class="value positive">${result.avg_train_return_pct.toFixed(2)}%</div></div>
-                <div class="stat"><div class="label">Avg Test Return</div><div class="value ${result.avg_test_return_pct >= 0 ? 'positive' : 'negative'}">${result.avg_test_return_pct.toFixed(2)}%</div></div>
-                <div class="stat"><div class="label">Overfit Ratio</div><div class="value" style="color:${verdictColor}">${result.overfit_ratio.toFixed(2)}</div></div>
+                <div class="stat"><div class="label">Avg Train Return</div><div class="value positive">${(result.avg_train_return_pct || 0).toFixed(2)}%</div></div>
+                <div class="stat"><div class="label">Avg Test Return</div><div class="value ${result.avg_test_return_pct >= 0 ? 'positive' : 'negative'}">${(result.avg_test_return_pct || 0).toFixed(2)}%</div></div>
+                <div class="stat"><div class="label">Overfit Ratio</div><div class="value" style="color:${verdictColor}">${(result.overfit_ratio || 0).toFixed(2)}</div></div>
                 <div class="stat"><div class="label">Verdict</div><div class="value" style="font-size:13px;color:${verdictColor}">${result.verdict}</div></div>
             </div>
             <table><thead><tr><th>Fold</th><th>Train Period</th><th>Test Period</th><th>Train Ret%</th><th>Test Ret%</th><th>Train Sharpe</th><th>Test Sharpe</th><th>Train DD%</th><th>Test DD%</th></tr></thead><tbody>`;
@@ -2185,12 +3184,12 @@ async function runWalkForward() {
                 <td>${f.fold}</td>
                 <td>${f.train_start} → ${f.train_end}</td>
                 <td>${f.test_start} → ${f.test_end}</td>
-                <td class="${f.train_return_pct >= 0 ? 'positive' : 'negative'}">${f.train_return_pct.toFixed(2)}%</td>
-                <td class="${f.test_return_pct >= 0 ? 'positive' : 'negative'}">${f.test_return_pct.toFixed(2)}%</td>
-                <td>${f.train_sharpe.toFixed(2)}</td>
-                <td>${f.test_sharpe.toFixed(2)}</td>
-                <td class="negative">${f.train_max_dd.toFixed(2)}%</td>
-                <td class="negative">${f.test_max_dd.toFixed(2)}%</td>
+                <td class="${f.train_return_pct >= 0 ? 'positive' : 'negative'}">${(f.train_return_pct || 0).toFixed(2)}%</td>
+                <td class="${f.test_return_pct >= 0 ? 'positive' : 'negative'}">${(f.test_return_pct || 0).toFixed(2)}%</td>
+                <td>${(f.train_sharpe || 0).toFixed(2)}</td>
+                <td>${(f.test_sharpe || 0).toFixed(2)}</td>
+                <td class="negative">${(f.train_max_dd || 0).toFixed(2)}%</td>
+                <td class="negative">${(f.test_max_dd || 0).toFixed(2)}%</td>
             </tr>`;
         });
         html += '</tbody></table>';
@@ -2276,13 +3275,13 @@ async function runSweep() {
                 const retClass = r.total_return_pct >= 0 ? 'positive' : 'negative';
                 html += `<tr>
                     <td><strong>${r[paramName]}</strong></td>
-                    <td class="${retClass}">${r.total_return_pct.toFixed(2)}%</td>
-                    <td>${r.annual_return_pct.toFixed(2)}%</td>
-                    <td>${r.sharpe_ratio.toFixed(2)}</td>
-                    <td class="negative">${r.max_drawdown_pct.toFixed(2)}%</td>
+                    <td class="${retClass}">${(r.total_return_pct || 0).toFixed(2)}%</td>
+                    <td>${(r.annual_return_pct || 0).toFixed(2)}%</td>
+                    <td>${(r.sharpe_ratio || 0).toFixed(2)}</td>
+                    <td class="negative">${(r.max_drawdown_pct || 0).toFixed(2)}%</td>
                     <td>${r.total_trades}</td>
-                    <td>${r.win_rate_pct.toFixed(1)}%</td>
-                    <td>${r.profit_factor.toFixed(2)}</td>
+                    <td>${(r.win_rate_pct || 0).toFixed(1)}%</td>
+                    <td>${(r.profit_factor || 0).toFixed(2)}</td>
                 </tr>`;
             }
         });
@@ -2338,7 +3337,7 @@ async function runCorrelation() {
                 } else {
                     const intensity = Math.min(Math.abs(val), 1).toFixed(2);
                     const cls = val >= 0 ? 'hm-pos' : 'hm-neg';
-                    html += `<td class="${cls}" style="--hm-a:${intensity}">${val.toFixed(3)}</td>`;
+                    html += `<td class="${cls}" style="--hm-a:${intensity}">${(val || 0).toFixed(3)}</td>`;
                 }
             });
             html += '</tr>';
@@ -2351,7 +3350,7 @@ async function runCorrelation() {
             const color = Math.abs(p.correlation) > 0.7 ? 'var(--red)' : Math.abs(p.correlation) > 0.4 ? 'var(--orange)' : 'var(--green)';
             html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
                 <span>${p.strategy_a} ↔ ${p.strategy_b}</span>
-                <span style="font-weight:700;color:${color}">${p.correlation.toFixed(3)}</span>
+                <span style="font-weight:700;color:${color}">${(p.correlation || 0).toFixed(3)}</span>
             </div>`;
         });
         html += '</div>';
@@ -2373,6 +3372,1824 @@ async function deleteAllRuns() {
         loadResults();
     } catch (e) { /* toast shown by api() */ }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚡ LEVERAGE SIMULATOR
+// ─────────────────────────────────────────────────────────────────────────────
+
+let levEquityChartInst = null;
+let levCostChartInst = null;
+let repoRateChartInst = null;
+
+function levVal(id) { return document.getElementById(id).value; }
+
+async function runLeverageSim() {
+    const spinner = document.getElementById('lev_spinner');
+    spinner.style.display = 'inline-flex';
+    document.getElementById('lev_single_results').style.display = 'none';
+    document.getElementById('lev_vix_warning').style.display = 'none';
+    document.getElementById('lev_margin_warning').style.display = 'none';
+    try {
+        const payload = {
+            leverage_ratio: parseFloat(levVal('lev_ratio')),
+            call_otm_pct: parseFloat(levVal('lev_call_otm')),
+            put_otm_pct: parseFloat(levVal('lev_put_otm')),
+            initial_capital: parseFloat(levVal('lev_capital')),
+            start_date: levVal('lev_start') || null,
+            end_date: levVal('lev_end') || null,
+            use_vol_skew: document.getElementById('lev_use_skew').checked,
+            enable_transaction_costs: document.getElementById('lev_enable_tc').checked,
+            strike_round_increment: parseFloat(levVal('lev_strike_round')),
+        };
+        const data = await api('/api/leverage/simulate', { method: 'POST', body: JSON.stringify(payload) });
+        renderLeverageSingle(data);
+    } catch(e) { /* handled by api() */ }
+    finally { spinner.style.display = 'none'; }
+}
+
+function renderLeverageSingle(d) {
+    // Metrics grid
+    const pct = v => `${v >= 0 ? '+' : ''}${(v || 0).toFixed(2)}%`;
+    const fmtCapital = v => `₹${((v/100000) || 0).toFixed(1)}L`;
+    const grid = document.getElementById('lev_metrics_grid');
+    grid.innerHTML = `
+        <div class="stat"><div class="label">Final Capital</div>
+            <div class="value ${d.final_capital >= d.initial_capital ? 'positive':'negative'}">${fmtCapital(d.final_capital)}</div>
+            <div class="sub">Started: ${fmtCapital(d.initial_capital)}</div></div>
+        <div class="stat"><div class="label">Total Return</div>
+            <div class="value ${d.total_return_pct >= 0 ? 'positive':'negative'}">${pct(d.total_return_pct)}</div>
+            <div class="sub">Ann: ${pct(d.annual_return_pct)}</div></div>
+        <div class="stat"><div class="label">Max Drawdown</div>
+            <div class="value negative">${(d.max_drawdown_pct || 0).toFixed(2)}%</div>
+            <div class="sub">Calmar: ${(d.calmar_ratio || 0).toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Sharpe / Sortino</div>
+            <div class="value">${(d.sharpe_ratio || 0).toFixed(2)}</div>
+            <div class="sub">Sortino: ${(d.sortino_ratio || 0).toFixed(2)}</div></div>
+        <div class="stat"><div class="label">Carry Cost</div>
+            <div class="value negative">-${(d.total_carry_cost_pct || 0).toFixed(1)}%</div>
+            <div class="sub">of initial capital</div></div>
+        <div class="stat"><div class="label">Put Premium Cost</div>
+            <div class="value negative">-${(d.total_put_cost_pct || 0).toFixed(1)}%</div>
+            <div class="sub">${d.put_payout_events} payout events</div></div>
+        <div class="stat"><div class="label">CC Income</div>
+            <div class="value positive">+${(d.total_call_income_pct || 0).toFixed(1)}%</div>
+            <div class="sub">${d.call_cap_events} cap events</div></div>
+        <div class="stat"><div class="label">Liquid Fund Income</div>
+            <div class="value positive">+${(d.total_liquid_fund_income_pct || 0).toFixed(1)}%</div>
+            <div class="sub">VIX coverage: ${(d.vix_data_coverage_pct || 0).toFixed(0)}%</div></div>
+        ${d.total_transaction_cost_pct > 0 ? `<div class="stat"><div class="label">Transaction Costs</div>
+            <div class="value negative">-${(d.total_transaction_cost_pct || 0).toFixed(2)}%</div>
+            <div class="sub">STT + brokerage drag</div></div>` : ''}
+    `;
+
+    // VIX warning
+    if (d.vix_warning) {
+        const w = document.getElementById('lev_vix_warning');
+        w.textContent = '⚠ ' + d.vix_warning;
+        w.style.display = 'block';
+    }
+
+    // Equity curve chart
+    if (levEquityChartInst) { levEquityChartInst.destroy(); levEquityChartInst = null; }
+    const ec = d.equity_curve || [];
+    const labels = ec.map(r => r.Date);
+    const equityVals = ec.map(r => r.equity);
+    const benchVals = ec.map(r => r.benchmark_equity);
+    const ctx = document.getElementById('leverageEquityChart').getContext('2d');
+    levEquityChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: `${d.leverage_ratio}× Leveraged Strategy`, data: equityVals,
+                  borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)',
+                  borderWidth: 2, pointRadius: 0, fill: true, tension: 0.1 },
+                { label: '1× Buy & Hold (Nifty)', data: benchVals,
+                  borderColor: '#f59e0b', backgroundColor: 'transparent',
+                  borderWidth: 1.5, pointRadius: 0, borderDash: [4,3], tension: 0.1 },
+            ]
+        },
+        options: {
+            animation: false,
+            responsive: true, maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: { legend: { labels: { color: '#8b8fa3', font: { size: 12 } } },
+                       tooltip: { callbacks: { label: ctx => `₹${((ctx.parsed.y/100000) || 0).toFixed(1)}L` } } },
+            scales: {
+                x: { type: 'time', time: { unit: 'year' }, ticks: { color: '#8b8fa3', maxTicksLimit: 10 },
+                     grid: { color: 'rgba(45,49,72,0.6)' } },
+                y: { ticks: { color: '#8b8fa3', callback: v => `₹${((v/100000) || 0).toFixed(0)}L` },
+                     grid: { color: 'rgba(45,49,72,0.6)' } }
+            }
+        }
+    });
+
+    // Cost breakdown bar chart
+    if (levCostChartInst) { levCostChartInst.destroy(); levCostChartInst = null; }
+    const grossPnl = d.total_futures_pnl_pct;
+    const costCtx = document.getElementById('leverageCostChart').getContext('2d');
+    levCostChartInst = new Chart(costCtx, {
+        type: 'bar',
+        data: {
+            labels: ['Futures P&L', 'Liquid Fund', 'CC Income', 'Carry Cost', 'Put Cost', 'TC Cost', 'Net Return'],
+            datasets: [{
+                data: [
+                    grossPnl,
+                    d.total_liquid_fund_income_pct,
+                    d.total_call_income_pct,
+                    -d.total_carry_cost_pct,
+                    -d.total_put_cost_pct,
+                    -(d.total_transaction_cost_pct || 0),
+                    d.total_return_pct,
+                ],
+                backgroundColor: [
+                    '#6366f1','#22c55e','#3b82f6','#ef4444','#f59e0b','#ec4899','#818cf8'
+                ],
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            animation: false,
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+                       tooltip: { callbacks: { label: ctx => `${(ctx.parsed.y || 0).toFixed(2)}% of capital` } } },
+            scales: {
+                x: { ticks: { color: '#8b8fa3', font: { size: 11 } }, grid: { display: false } },
+                y: { ticks: { color: '#8b8fa3', callback: v => `${(v || 0).toFixed(0)}%` },
+                     grid: { color: 'rgba(45,49,72,0.6)' } }
+            }
+        }
+    });
+
+    // Monthly returns table
+    const mb = d.monthly_breakdown || [];
+    const tbl = document.getElementById('lev_monthly_table');
+    if (mb.length) {
+        let html = '<table><thead><tr><th>Month</th><th>Start ₹</th><th>End ₹</th><th>Return</th></tr></thead><tbody>';
+        mb.forEach(r => {
+            const cls = r.month_return_pct >= 0 ? 'positive' : 'negative';
+            html += `<tr>
+                <td>${r.month_label}</td>
+                <td>₹${((r.equity_start/100000) || 0).toFixed(1)}L</td>
+                <td>₹${((r.equity_end/100000) || 0).toFixed(1)}L</td>
+                <td class="${cls}">${r.month_return_pct >= 0 ? '+' : ''}${(r.month_return_pct || 0).toFixed(2)}%</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        tbl.innerHTML = html;
+    } else {
+        tbl.innerHTML = '<p style="color:var(--text2);padding:12px">No monthly data.</p>';
+    }
+
+    document.getElementById('lev_single_results').style.display = 'block';
+    document.getElementById('lev_sweep_results').style.display = 'none';
+    toast('Simulation complete', 'success');
+}
+
+async function runLeverageSweep() {
+    const spinner = document.getElementById('lev_spinner');
+    spinner.style.display = 'inline-flex';
+    document.getElementById('lev_sweep_results').style.display = 'none';
+    document.getElementById('lev_single_results').style.display = 'none';
+    try {
+        const payload = {
+            leverage_ratios: [1.0, 1.5, 2.0, 2.5, 3.0],
+            call_otm_pcts: [0.0, 0.025, 0.05, 0.075],
+            put_otm_pct: parseFloat(levVal('lev_put_otm')),
+            initial_capital: parseFloat(levVal('lev_capital')),
+            start_date: levVal('lev_start') || null,
+            end_date: levVal('lev_end') || null,
+            use_vol_skew: document.getElementById('lev_use_skew').checked,
+            enable_transaction_costs: document.getElementById('lev_enable_tc').checked,
+            strike_round_increment: parseFloat(levVal('lev_strike_round')),
+        };
+        const data = await api('/api/leverage/sweep', { method: 'POST', body: JSON.stringify(payload) });
+        renderLeverageSweep(data);
+    } catch(e) { /* handled */ }
+    finally { spinner.style.display = 'none'; }
+}
+
+function renderLeverageSweep(data) {
+    const results = data.results || [];
+    const leverages = data.leverage_ratios;
+    const calls = data.call_otm_pcts;
+
+    // Build lookup: key = `${lev}_${cc}`
+    const lookup = {};
+    results.forEach(r => { lookup[`${r.leverage_ratio}_${r.call_otm_pct}`] = r; });
+
+    // Helper: build heatmap table for a given metric
+    function buildHeatmap(metric, fmt, posIsGood) {
+        const vals = results.map(r => r[metric]).filter(v => v !== undefined);
+        const minV = Math.min(...vals);
+        const maxV = Math.max(...vals);
+        const range = maxV - minV || 1;
+
+        let html = '<table class="heatmap-table"><thead><tr><th>Leverage →<br>CC OTM% ↓</th>';
+        leverages.forEach(l => { html += `<th>${l}×</th>`; });
+        html += '</tr></thead><tbody>';
+        calls.forEach(cc => {
+            html += `<tr><th>${cc === 0 ? 'No CC' : (cc * 100).toFixed(1) + '% OTM'}</th>`;
+            leverages.forEach(l => {
+                const r = lookup[`${l}_${cc}`];
+                if (!r) { html += '<td>—</td>'; return; }
+                const v = r[metric];
+                const norm = (v - minV) / range; // 0..1
+                const intensity = 0.3 + 0.65 * norm;
+                const isPos = posIsGood ? v >= 0 : v <= 0;
+                const cls = isPos ? 'hm-pos' : 'hm-neg';
+                html += `<td class="${cls}" style="--hm-a:${(intensity || 0).toFixed(2)}">${fmt(v)}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        return html;
+    }
+
+    document.getElementById('lev_heatmap_return').innerHTML =
+        buildHeatmap('annual_return_pct', v => `${(v || 0).toFixed(1)}%`, true);
+    document.getElementById('lev_heatmap_dd').innerHTML =
+        buildHeatmap('max_drawdown_pct', v => `${(v || 0).toFixed(1)}%`, false);
+
+    // Summary table rows
+    const tbody = document.getElementById('lev_sweep_tbody');
+    const sorted = [...results].sort((a, b) => b.sharpe_ratio - a.sharpe_ratio);
+    tbody.innerHTML = sorted.map(r => `
+        <tr>
+            <td>${r.leverage_ratio}×</td>
+            <td>${r.call_otm_pct === 0 ? 'None' : (r.call_otm_pct * 100).toFixed(1) + '%'}</td>
+            <td class="${r.annual_return_pct >= 0 ? 'positive':'negative'}">${(r.annual_return_pct || 0).toFixed(2)}%</td>
+            <td class="negative">${(r.max_drawdown_pct || 0).toFixed(2)}%</td>
+            <td>${(r.sharpe_ratio || 0).toFixed(2)}</td>
+            <td>${(r.sortino_ratio || 0).toFixed(2)}</td>
+            <td>${(r.calmar_ratio || 0).toFixed(2)}</td>
+            <td class="negative">-${(r.total_carry_cost_pct || 0).toFixed(1)}%</td>
+            <td class="negative">-${(r.total_put_cost_pct || 0).toFixed(1)}%</td>
+            <td class="positive">+${(r.total_call_income_pct || 0).toFixed(1)}%</td>
+            <td class="positive">+${(r.total_liquid_fund_income_pct || 0).toFixed(1)}%</td>
+            <td class="negative">${r.total_transaction_cost_pct > 0 ? '-' + (r.total_transaction_cost_pct || 0).toFixed(2) + '%' : '—'}</td>
+            <td>${r.put_payout_events}</td>
+            <td>${r.call_cap_events}</td>
+            <td>${r.margin_call_triggered ? '<span style="color:var(--red)">\u26a0 Yes</span>' : '—'}</td>
+        </tr>
+    `).join('');
+
+    document.getElementById('lev_sweep_results').style.display = 'block';
+    toast(`Sweep complete — ${results.length} combinations`, 'success');
+}
+
+async function loadLeverageAssumptions() {
+    try {
+        const d = await api('/api/leverage/assumptions');
+        // VIX regime table
+        const vixTbody = document.getElementById('lev_vix_tbody');
+        vixTbody.innerHTML = (d.vix_iv_regimes || []).map(r =>
+            `<tr><td>${r.label}</td><td>${r.vix_low}–${r.vix_high === 999 ? '∞' : r.vix_high}</td>
+             <td><strong>${(r.iv_pct || 0).toFixed(0)}%</strong></td></tr>`
+        ).join('');
+
+        // Notes list
+        const notesList = document.getElementById('lev_notes_list');
+        notesList.innerHTML = (d.model_notes || []).map(n => `<li>${n}</li>`).join('');
+
+        // Repo rate chart
+        if (repoRateChartInst) { repoRateChartInst.destroy(); repoRateChartInst = null; }
+        const rates = d.rbi_repo_rates || [];
+        const rCtx = document.getElementById('repoRateChart').getContext('2d');
+        repoRateChartInst = new Chart(rCtx, {
+            type: 'line',
+            data: {
+                labels: rates.map(r => r.date),
+                datasets: [{
+                    label: 'RBI Repo Rate %',
+                    data: rates.map(r => r.repo_rate_pct),
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245,158,11,0.08)',
+                    borderWidth: 2, pointRadius: 3, stepped: 'before', fill: true,
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#8b8fa3' } } },
+                scales: {
+                    x: { type: 'time', time: { unit: 'year' }, ticks: { color: '#8b8fa3' },
+                         grid: { color: 'rgba(45,49,72,0.6)' } },
+                    y: { ticks: { color: '#8b8fa3', callback: v => `${v}%` },
+                         grid: { color: 'rgba(45,49,72,0.6)' }, suggestedMin: 3, suggestedMax: 10 }
+                }
+            }
+        });
+
+        document.getElementById('lev_assumptions_panel').style.display = 'block';
+        toast('Assumptions loaded');
+    } catch(e) { /* handled */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 📊 VALUATION CONTEXT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ZONE_COLORS = {
+    'Undervalued':         { bg: 'rgba(16,185,129,0.12)', border: '#10b981', text: '#10b981' },
+    'Fairly Valued':       { bg: 'rgba(245,158,11,0.12)', border: '#f59e0b', text: '#f59e0b' },
+    'Slightly Overvalued': { bg: 'rgba(249,115,22,0.12)', border: '#f97316', text: '#f97316' },
+    'Overvalued':          { bg: 'rgba(239,68,68,0.12)',  border: '#ef4444', text: '#ef4444' },
+    'Neutral':             { bg: 'rgba(100,116,139,0.12)', border: '#64748b', text: '#64748b' },
+    'N/A':                 { bg: 'transparent', border: 'var(--border)', text: 'var(--text2)' },
+};
+
+function _zoneStyle(zone) {
+    return ZONE_COLORS[zone] || ZONE_COLORS['N/A'];
+}
+
+function _metricCard(label, value, zone, extra) {
+    const c = _zoneStyle(zone);
+    return `<div style="background:${c.bg};border:1px solid ${c.border};border-radius:8px;padding:14px 16px">
+        <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">${label}</div>
+        <div style="font-size:26px;font-weight:700;color:${c.text};margin:6px 0 2px">${value}</div>
+        <div style="font-size:11px;font-weight:600;color:${c.text}">${zone}</div>
+        ${extra ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">${extra}</div>` : ''}
+    </div>`;
+}
+
+function renderValuationContext(d) {
+    const cur = d.current;
+    const zones = d.zones;
+    const erp = d.equity_risk_premium;
+    const lev = d.leverage_rec;
+    const stats = d.pe_stats;
+
+    // Date badge
+    document.getElementById('val_data_date').textContent = `Updated: ${cur.date}`;
+
+    // Metric cards
+    const cards = [
+        _metricCard('PE Ratio (TTM)', (cur.pe || 0).toFixed(2), zones.pe_zone,
+            stats.percentile != null ? `${stats.percentile}th percentile` : null),
+        _metricCard('PB Ratio', cur.pb > 0 ? (cur.pb || 0).toFixed(2) : 'N/A', zones.pb_zone, null),
+        _metricCard('Dividend Yield', cur.div_yield > 0 ? (cur.div_yield || 0).toFixed(2) + '%' : 'N/A', zones.dy_zone, null),
+        _metricCard('Earnings Yield', (erp.earnings_yield_pct || 0).toFixed(2) + '%',
+            erp.signal === 'positive' ? 'Undervalued' : erp.signal === 'neutral' ? 'Fairly Valued' : 'Overvalued',
+            `ERP ${erp.erp_pct >= 0 ? '+' : ''}${(erp.erp_pct || 0).toFixed(2)}% vs risk-free ${erp.risk_free_rate_pct}%`),
+    ];
+    document.getElementById('val_metric_cards').innerHTML = cards.join('');
+
+    // Signal banner
+    const sigMap = {
+        'Strong Buy':       { emoji: '🟢', bg: 'rgba(16,185,129,0.12)', col: '#10b981' },
+        'Moderate Buy':     { emoji: '🟡', bg: 'rgba(132,204,22,0.12)', col: '#84cc16' },
+        'Neutral':          { emoji: '⚪', bg: 'rgba(100,116,139,0.12)', col: '#64748b' },
+        'Cautious':         { emoji: '🟠', bg: 'rgba(249,115,22,0.12)', col: '#f97316' },
+        'Reduce Exposure':  { emoji: '🔴', bg: 'rgba(239,68,68,0.12)',  col: '#ef4444' },
+    };
+    const sig = sigMap[zones.overall_signal] || sigMap['Neutral'];
+    const sigBox = document.getElementById('val_signal_box');
+    sigBox.style.background = sig.bg;
+    sigBox.style.border = `1px solid ${sig.col}`;
+    document.getElementById('val_signal_emoji').textContent = sig.emoji;
+    document.getElementById('val_signal_text').style.color = sig.col;
+    document.getElementById('val_signal_text').textContent = zones.overall_signal;
+    document.getElementById('val_erp_text').textContent =
+        `Equity Risk Premium: ${erp.erp_pct >= 0 ? '+' : ''}${(erp.erp_pct || 0).toFixed(2)}% (${erp.signal})`;
+
+    // Leverage box
+    const levC = _zoneStyle(zones.pe_zone);
+    const levBox = document.getElementById('val_leverage_box');
+    levBox.style.background = levC.bg;
+    levBox.style.border = `1px solid ${levC.border}`;
+    document.getElementById('val_lev_value').style.color = levC.text;
+    document.getElementById('val_lev_value').textContent = `${lev.emoji} Max ${lev.max_leverage}× Leverage`;
+    document.getElementById('val_lev_reason').textContent = lev.reason;
+
+    // Historical stats (optional)
+    if (stats && stats.percentile != null) {
+        document.getElementById('val_stats_row').style.display = 'block';
+        const items = [
+            { label: 'Percentile', value: `${stats.percentile}th` },
+            { label: 'Mean PE', value: (stats.mean || 0).toFixed(2) },
+            { label: 'Median PE', value: (stats.median || 0).toFixed(2) },
+            { label: 'Std Dev', value: `±${(stats.std || 0).toFixed(2)}` },
+            { label: 'Range', value: `${(stats.min || 0).toFixed(2)} – ${(stats.max || 0).toFixed(2)}` },
+            { label: 'Rows', value: d.meta.data_rows + ` (${d.meta.data_from} → ${d.meta.data_to})` },
+        ];
+        document.getElementById('val_stats_inner').innerHTML = items.map(i =>
+            `<div><span style="color:var(--text2)">${i.label}:</span> <strong>${i.value}</strong></div>`
+        ).join('');
+    } else {
+        document.getElementById('val_stats_row').style.display = 'none';
+    }
+
+    document.getElementById('val_loading').style.display = 'none';
+    document.getElementById('val_content').style.display = 'block';
+
+    // Pre-fill the leverage ratio selector with the recommended cap
+    const levSelect = document.getElementById('lev_ratio');
+    const rec = (lev.max_leverage || 0).toFixed(1);
+    const opt = levSelect.querySelector(`option[value="${rec}"]`);
+    if (opt) {
+        levSelect.value = rec;
+    }
+}
+
+async function loadValuationContext() {
+    document.getElementById('val_loading').style.display = 'block';
+    document.getElementById('val_loading').textContent = 'Loading valuation data…';
+    document.getElementById('val_content').style.display = 'none';
+    document.getElementById('val_error').style.display = 'none';
+    try {
+        const d = await api('/api/leverage/valuation-context');
+        renderValuationContext(d);
+    } catch (e) {
+        document.getElementById('val_loading').style.display = 'none';
+        const errEl = document.getElementById('val_error');
+        errEl.style.display = 'block';
+        errEl.textContent = `⚠ Could not load valuation data. Run "python main.py download-valuation" first, or check network. (${e.message})`;
+    }
+}
+
+async function syncValuationData() {
+    try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '…';
+        const d = await api('/api/valuation/sync', { method: 'POST' });
+        toast(`PE/PB synced — ${d.latest.date}: PE=${d.latest.pe}, PB=${d.latest.pb}`);
+        await loadValuationContext();
+    } catch (e) {
+        /* handled by api() */
+    } finally {
+        const btn = document.querySelector('#valuation_panel button[onclick="syncValuationData()"]');
+        if (btn) { btn.disabled = false; btn.textContent = '⬇ Sync Today'; }
+    }
+}
+
+// ════════════════════════════════════════════════════════
+// SWP MONTE CARLO SIMULATOR
+// ════════════════════════════════════════════════════════
+
+let _retFanChart = null;
+let _retSurvivalChart = null;
+let _retRuinChart = null;
+let _retOptChart = null;
+
+function initSWPTab() {
+    // Update live labels on first load
+    const ep = document.getElementById('ret_equity_pct');
+    if (ep) {
+        document.getElementById('ret_equity_pct_val').textContent = ep.value + '%';
+        document.getElementById('ret_debt_pct_label').textContent = '(Debt: ' + (100 - ep.value) + '%)';
+    }
+}
+
+async function runSWPSimulation() {
+    const btn = document.getElementById('ret_run_btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Simulating...';
+    const _t0 = Date.now();
+    const _timerInterval = setInterval(() => {
+        btn.textContent = '⏳ Simulating... ' + ((Date.now() - _t0) / 1000).toFixed(0) + 's';
+    }, 500);
+    try {
+        const params = _retParams();
+        const data = await api('/api/swp/simulate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params),
+        });
+        document.getElementById('ret_results').style.display = 'block';
+        _renderRetMetrics(data.summary, params);
+        _renderFanChart(data.portfolio_percentiles, params.total_years, params.swp_replenish_years, data.debt_medians, params.fire_mode, params.phase1_years, params.use_leverage);
+        _renderSurvivalChart(data.survival_by_year);
+        _renderRuinChart(data.ruin_histogram, params.total_years);
+        _renderAssumptions(data);
+        _renderYearlyTable(data.yearly_stats, data.actual_start_year, data.n_simulations, params.use_leverage);
+        if (data.capped_at_2000) toast('Simulations capped at 2,000 for performance.', 'info');
+    } catch(e) {
+        toast('Simulation failed: ' + e.message, 'error');
+    } finally {
+        clearInterval(_timerInterval);
+        btn.disabled = false;
+        btn.textContent = '▶ Run Simulation';
+    }
+}
+
+async function runSWPOptimization() {
+    const btn = document.getElementById('ret_opt_btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Optimizing...';
+    try {
+        const p = _retParams();
+        const params = {
+            initial_corpus: p.initial_corpus,
+            monthly_withdrawal: p.monthly_withdrawal,
+            inflation_rate_pct: p.inflation_rate_pct,
+            debt_instrument: p.debt_instrument,
+            swp_replenish_years: p.swp_replenish_years,
+            emergency_months_threshold: p.emergency_months_threshold,
+            total_years: p.total_years,
+            tax_enabled: p.tax_enabled,
+            income_tax_bracket_pct: p.income_tax_bracket_pct,
+            n_sims_per_point: Math.min(p.n_simulations, 500),
+        };
+        const data = await api('/api/swp/optimize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params),
+        });
+        document.getElementById('ret_opt_results').style.display = 'block';
+        _renderOptChart(data);
+        _renderOptRecommendations(data);
+    } catch(e) {
+        toast('Optimization failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Find Optimal Allocation';
+    }
+}
+
+function _applyPreset(name) {
+    const presets = {
+        conservative: { corpus: 30000000, equity: 40, wd: 80000, inflation: 5, replenish: 3, emerg: 18, years: 30, sims: 1000 },
+        balanced:     { corpus: 10000000, equity: 60, wd: 50000, inflation: 6, replenish: 5, emerg: 12, years: 30, sims: 1000 },
+        aggressive:   { corpus:  8000000, equity: 80, wd: 40000, inflation: 7, replenish: 7, emerg:  6, years: 30, sims: 1000 },
+    };
+    const p = presets[name]; if (!p) return;
+    document.getElementById('ret_corpus').value = p.corpus;
+    const eq = document.getElementById('ret_equity_pct'); eq.value = p.equity;
+    document.getElementById('ret_equity_pct_val').textContent = p.equity + '%';
+    document.getElementById('ret_debt_pct_label').textContent = '(Debt: ' + (100 - p.equity) + '%)';
+    document.getElementById('ret_monthly_wd').value = p.wd;
+    document.getElementById('ret_inflation').value = p.inflation;
+    document.getElementById('ret_replenish_yrs').value = p.replenish;
+    document.getElementById('ret_emerg_months').value = p.emerg;
+    _setReplMode('fill_years');   // reset replenishment mode to default on preset
+    _setFireMode('classic');     // reset FIRE mode to classic on preset
+    const yrs = document.getElementById('ret_years'); yrs.value = p.years;
+    document.getElementById('ret_years_val').textContent = p.years + ' yrs';
+    document.getElementById('ret_n_sims').value = p.sims;
+    toast('Preset ' + name + ' applied', 'info');
+}
+
+function _setReplMode(mode) {
+    document.querySelectorAll('.repl-mode-btn').forEach(btn => {
+        const active = btn.dataset.mode === mode;
+        btn.style.background = active ? '#1a3a5c' : '#12121f';
+        btn.style.color = active ? '#90caf9' : '#aaa';
+        btn.style.border = active ? '1px solid #555' : '1px solid #333';
+        if (active) btn.classList.add('repl-mode-active');
+        else btn.classList.remove('repl-mode-active');
+    });
+    // Show % slider only for modes that use it
+    const showPct = mode === 'pct_equity' || mode === 'rebalance';
+    document.getElementById('ret_repl_pct_row').style.display = showPct ? 'block' : 'none';
+    // Update label text to be mode-specific
+    if (mode === 'pct_equity') {
+        document.getElementById('ret_repl_pct_label').firstChild.textContent = 'Sell % of Equity \u00a0';
+    } else if (mode === 'rebalance') {
+        document.getElementById('ret_repl_pct_label').firstChild.textContent = 'Target Debt % of Portfolio \u00a0';
+    }
+}
+
+function _getReplMode() {
+    const active = document.querySelector('.repl-mode-active');
+    return active ? active.dataset.mode : 'fill_years';
+}
+
+function _setFireMode(mode) {
+    document.querySelectorAll('.fire-mode-btn').forEach(btn => {
+        const active = btn.dataset.mode === mode;
+        btn.style.background = active ? '#1a3a5c' : '#12121f';
+        btn.style.color = active ? '#90caf9' : '#aaa';
+        btn.style.border = active ? '1px solid #555' : '1px solid #333';
+        if (active) btn.classList.add('fire-mode-active');
+        else btn.classList.remove('fire-mode-active');
+    });
+    const phase1 = document.getElementById('ret_phase1_controls');
+    const baristaRow = document.getElementById('ret_barista_wd_row');
+    const lbl = document.getElementById('ret_phase1_label');
+    if (mode === 'classic') {
+        phase1.style.display = 'none';
+    } else {
+        phase1.style.display = 'block';
+        if (mode === 'coast') {
+            if (lbl) lbl.textContent = 'Coast Phase Duration (Years) — no withdrawals during this period';
+            if (baristaRow) baristaRow.style.display = 'none';
+        } else {
+            if (lbl) lbl.textContent = 'Barista Phase Duration (Years) — partial withdrawal from corpus';
+            if (baristaRow) baristaRow.style.display = 'block';
+        }
+    }
+}
+
+function _togglePhase1Eq(checked) {
+    document.getElementById('ret_phase1_eq_row').style.display = checked ? 'block' : 'none';
+}
+
+function _toggleLeverage(checked) {
+    document.getElementById('ret_leverage_controls').style.display = checked ? 'block' : 'none';
+    // Hide debt instrument selector (irrelevant when leveraged Nifty replaces cash bucket)
+    const debtInstRow = document.getElementById('ret_debt_inst_row');
+    if (debtInstRow) debtInstRow.style.display = checked ? 'none' : '';
+    // Hide replenishment method buttons (leverage always uses rebalancing internally)
+    const replModeRow = document.getElementById('ret_repl_mode_row');
+    if (replModeRow) replModeRow.style.display = checked ? 'none' : '';
+    // Update replenishment interval label
+    const replLbl = document.getElementById('ret_replenish_lbl');
+    if (replLbl) replLbl.textContent = checked
+        ? 'Rebalance Interval (Years)'
+        : 'Replenish Debt Every (Years)';
+    // Update emergency threshold label
+    const emergLbl = document.querySelector('label[for="ret_emerg_months"], label[title*="Emergency"]');
+    if (emergLbl) emergLbl.textContent = checked
+        ? 'Emergency Top-up Threshold (Months of equity cover)'
+        : 'Emergency Threshold (Months)';
+    if (checked) _updateLeverageInfo();
+}
+
+function _updateLeverageInfo() {
+    const ratio = parseFloat(document.getElementById('ret_leverage_ratio')?.value || '2.0');
+    const borrow = parseFloat(document.getElementById('ret_leverage_borrow')?.value || '9.0');
+    const equityPct = parseFloat(document.getElementById('ret_equity_pct')?.value || '60');
+    const debtPct = 100 - equityPct;
+    const effectiveExposure = equityPct + debtPct * ratio;
+    const netCostPct = (ratio - 1) * borrow / ratio; // approx net cost as % of total
+    // Monthly Nifty return needed to break even (cover borrowing cost)
+    const monthly_borrow = borrow / 100 / 12;
+    const breakeven_monthly_pct = ((ratio - 1) * monthly_borrow / ratio * 100).toFixed(3);
+    // Monthly Nifty drop that wipes the margin bucket entirely
+    const wipeout_monthly_pct = (100 / ratio).toFixed(1);
+    document.getElementById('ret_lev_exposure_line').innerHTML =
+        `Total effective Nifty exposure: <strong style="color:#ffe082">${(effectiveExposure || 0).toFixed(1)}%</strong> ` +
+        `of corpus (${equityPct}% direct + ${debtPct}% × ${(ratio || 0).toFixed(1)}× leveraged)`;
+    document.getElementById('ret_lev_breakeven_line').innerHTML =
+        `Break-even: Nifty must return &gt; <strong style="color:#81c784">${breakeven_monthly_pct}%/mo</strong> ` +
+        `(${((parseFloat(breakeven_monthly_pct)*12) || 0).toFixed(2)}% p.a.) after borrowing cost`;
+    document.getElementById('ret_lev_wipeout_line').innerHTML =
+        `Margin call risk: Single-month Nifty drop &gt; <strong>${wipeout_monthly_pct}%</strong> wipes margin bucket ` +
+        `(e.g. March 2020 Nifty fell ~23% — ${(ratio || 0).toFixed(1)}× leverage → ~${((23*ratio) || 0).toFixed(0)}% loss on margin)`;
+}
+
+function _getFireMode() {
+    const active = document.querySelector('.fire-mode-active');
+    return active ? active.dataset.mode : 'classic';
+}
+
+function _retParams() {
+    const fireMode = _getFireMode();
+    const phase1EqToggle = document.getElementById('ret_phase1_eq_toggle');
+    const usePhase1Eq = phase1EqToggle && phase1EqToggle.checked;
+    return {
+        initial_corpus:             parseFloat(document.getElementById('ret_corpus').value),
+        equity_pct:                 parseFloat(document.getElementById('ret_equity_pct').value),
+        monthly_withdrawal:         parseFloat(document.getElementById('ret_monthly_wd').value),
+        inflation_rate_pct:         parseFloat(document.getElementById('ret_inflation').value),
+        debt_instrument:            document.getElementById('ret_debt_inst').value,
+        swp_replenish_years:        parseInt(document.getElementById('ret_replenish_yrs').value),
+        emergency_months_threshold: parseInt(document.getElementById('ret_emerg_months').value),
+        replenish_mode:             _getReplMode(),
+        replenish_pct:              parseFloat(document.getElementById('ret_repl_pct').value),
+        total_years:                parseInt(document.getElementById('ret_years').value),
+        tax_enabled:                document.getElementById('ret_tax_enabled').checked,
+        income_tax_bracket_pct:     parseFloat(document.getElementById('ret_tax_bracket').value),
+        n_simulations:              parseInt(document.getElementById('ret_n_sims').value),
+        random_seed:                document.getElementById('ret_seed').value ? parseInt(document.getElementById('ret_seed').value) : null,
+        starting_year:              document.getElementById('ret_starting_year').value ? parseInt(document.getElementById('ret_starting_year').value) : null,
+        compute_swr:                document.getElementById('ret_full_analysis')?.checked !== false,
+        compute_tax_drag:           document.getElementById('ret_full_analysis')?.checked !== false,
+        fire_mode:                  fireMode,
+        phase1_years:               fireMode !== 'classic' ? parseInt(document.getElementById('ret_phase1_years').value) : 0,
+        barista_monthly_withdrawal: parseFloat(document.getElementById('ret_barista_wd')?.value || '20000'),
+        monthly_contribution:       parseFloat(document.getElementById('ret_monthly_contribution')?.value || '0'),
+        phase1_equity_pct:          usePhase1Eq ? parseFloat(document.getElementById('ret_phase1_eq_pct').value) : null,
+        use_leverage:               document.getElementById('ret_use_leverage')?.checked || false,
+        leverage_ratio:             parseFloat(document.getElementById('ret_leverage_ratio')?.value || '2.0'),
+        leverage_borrow_rate_pct:   parseFloat(document.getElementById('ret_leverage_borrow')?.value || '9.0'),
+    };
+}
+
+function _fmtCrore(val) {
+    if (val >= 1e7) return '₹' + (val / 1e7).toFixed(2) + ' Cr';
+    if (val >= 1e5) return '₹' + (val / 1e5).toFixed(2) + ' L';
+    return '₹' + val.toLocaleString('en-IN');
+}
+
+function _renderYearlyTable(rows, actualStartYear, nSimulations, useLeverage) {
+    const section = document.getElementById('ret_yearly_section');
+    if (!rows || rows.length === 0) { section.style.display = 'none'; return; }
+
+    // Subtitle: Historical or Representative
+    const subtitle = document.getElementById('ret_yearly_subtitle');
+    const calHdr = document.getElementById('ret_cal_yr_hdr');
+    const hasCalYr = actualStartYear !== null && actualStartYear !== undefined;
+    // Count projected rows for subtitle annotation
+    const nProjected = rows ? rows.filter(r => r.is_projected).length : 0;
+    if (hasCalYr) {
+        const nReal = (rows ? rows.length : 0) - nProjected;
+        const projNote = nProjected > 0
+            ? ` · first ${nReal} yr${nReal!==1?'s':''} historical, next ${nProjected} yr${nProjected!==1?'s':''} MC projected`
+            : ' · fully historical';
+        subtitle.textContent = `Historical scenario from ${actualStartYear}${projNote}`;
+        calHdr.style.display = '';
+    } else {
+        const nSims = nSimulations ? nSimulations.toLocaleString() : '';
+        subtitle.textContent = `Median simulation path \u2014 P50 outcome from ${nSims} MC paths (block-bootstrap from historical Nifty returns)`;
+        calHdr.style.display = 'none';
+    }
+
+    // Detect if we have FIRE phase data (any row has phase != "Classic")
+    const hasFire = rows.some(r => r.phase && r.phase !== 'Classic');
+
+    // ── Update thead to match actual columns ──────────────────────────────
+    const thead = document.getElementById('ret_yearly_thead');
+    if (thead) {
+        const calYrTh = hasCalYr ? `<th style="text-align:left;padding:6px 8px" id="ret_cal_yr_hdr" class="ret-cal-col">Cal Yr</th>` : `<th style="display:none" id="ret_cal_yr_hdr" class="ret-cal-col"></th>`;
+        const phaseTh = hasFire ? `<th style="text-align:left;padding:6px 8px">Phase</th>` : '';
+        const netCfTh = hasFire ? `<th style="padding:6px 8px" title="Contributions minus withdrawals">Net CF (₹/yr)</th>` : '';
+        thead.innerHTML = `<tr style="background:#1a1a2e;text-align:right">
+            <th style="text-align:left;padding:6px 8px;position:sticky;left:0;background:#1a1a2e">Yr</th>
+            ${phaseTh}
+            ${calYrTh}
+            <th style="padding:6px 8px">Equity (₹)</th>
+            <th style="padding:6px 8px">${useLeverage ? 'Leveraged Nifty (₹)' : 'Debt (₹)'}</th>
+            <th style="padding:6px 8px">Portfolio (₹)</th>
+            <th style="padding:6px 8px">Change %</th>
+            <th style="padding:6px 8px">Annual WD (₹)</th>
+            <th style="padding:6px 8px">Monthly WD (₹)</th>
+            ${netCfTh}
+            <th style="padding:6px 8px">Tax Paid (₹)</th>
+            <th style="padding:6px 8px">Replenishment</th>
+            <th style="padding:6px 8px" title="Equity market return %">Eq Ret%</th>
+            <th style="padding:6px 8px">Repl Amount (₹)</th>
+            <th style="padding:6px 8px">WD Rate%</th>
+        </tr>`;
+    }
+
+    const tbody = document.getElementById('ret_yearly_tbody');
+    tbody.innerHTML = '';
+    let prevIsProjected = false;
+    let prevPhase = null;
+    rows.forEach(r => {
+        const survived = r.survived;
+        const isProj = r.is_projected === true;
+        const phase = r.phase || 'Classic';
+
+        // Insert separator row when transitioning from historical to projected
+        if (isProj && !prevIsProjected) {
+            const colSpan = hasCalYr ? '15' : '14';
+            tbody.insertAdjacentHTML('beforeend',
+                `<tr><td colspan="${colSpan}" style="padding:4px 8px;background:#1a1a00;color:#ffb300;font-size:.75em;text-align:center;letter-spacing:.05em;">`
+                + '▼ PROJECTED (block-bootstrap continuation from historical Nifty data) ▼</td></tr>'
+            );
+        }
+        prevIsProjected = isProj;
+
+        // Phase transition separator (Coast/Barista → Full Retirement)
+        if (hasFire && prevPhase !== null && prevPhase !== phase && phase === 'Full Retirement') {
+            const colSpan = hasCalYr ? '15' : '14';
+            const modeIcon = rows[0]?.phase === 'Coast' ? '⛵' : '☕';
+            tbody.insertAdjacentHTML('beforeend',
+                `<tr><td colspan="${colSpan}" style="padding:4px 8px;background:#0a1a1a;color:#00c8b4;font-size:.75em;text-align:center;letter-spacing:.05em;">`
+                + `${modeIcon} PHASE 2 — FULL SWP BEGINS ▼</td></tr>`
+            );
+        }
+        prevPhase = phase;
+
+        const rowBg = !survived ? '#2a0a0a' : isProj ? '#0d110d' : (phase === 'Coast' ? '#081414' : phase === 'Barista' ? '#140f08' : '#0d0d1a');
+        const stickyBg = rowBg;
+        const chg = r.portfolio_change_pct;
+        const chgColor = chg === null ? '#aaa' : chg >= 0 ? '#4caf50' : '#f44336';
+        const chgTxt = chg === null ? '—' : (chg > 0 ? '+' : '') + chg.toFixed(1) + '%';
+
+        // Phase badge
+        let phaseBadge = '';
+        if (hasFire) {
+            const phaseColors = { 'Coast': '#00c8b4', 'Barista': '#ffb300', 'Full Retirement': '#64b5f6', 'Classic': '#aaa' };
+            const phaseIcons = { 'Coast': '⛵', 'Barista': '☕', 'Full Retirement': '🏖', 'Classic': '' };
+            const c = phaseColors[phase] || '#aaa';
+            phaseBadge = `<td style="padding:5px 6px"><span style="color:${c};font-size:.8em;white-space:nowrap">${phaseIcons[phase] || ''} ${phase}</span></td>`;
+        }
+
+        // Replenishment badge — for leverage mode, show harvest vs top-up direction
+        let repBadge = '';
+        if (useLeverage && (r.scheduled_replenish || r.emergency_replenish)) {
+            const amt = r.replenishment_amount || 0;
+            const isHarvest = amt < 0;  // negative = leveraged→equity harvest
+            if (r.scheduled_replenish) {
+                const lbl = isHarvest ? '📤 Harvest' : '📥 Top-up';
+                const bg = isHarvest ? '#2e7d32' : '#1565c0';
+                repBadge += `<span style="background:${bg};color:#fff;padding:1px 5px;border-radius:3px;margin-right:2px;font-size:.75em">${lbl}</span>`;
+            }
+            if (r.emergency_replenish) repBadge += '<span style="background:#b71c1c;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75em">⚠ Emerg</span>';
+        } else {
+            if (r.scheduled_replenish) repBadge += '<span style="background:#1565c0;color:#fff;padding:1px 5px;border-radius:3px;margin-right:2px;font-size:.75em">💰 Sched</span>';
+            if (r.emergency_replenish) repBadge += '<span style="background:#b71c1c;color:#fff;padding:1px 5px;border-radius:3px;font-size:.75em">⚠ Emerg</span>';
+        }
+        if (!repBadge) repBadge = '<span style="color:#666">—</span>';
+
+        const calYrCell = hasCalYr ? `<td style="padding:5px 8px;color:#aaa">${r.calendar_year || ''}</td>` : '';
+
+        // Net cash flow cell (only meaningful for FIRE modes)
+        const netCf = r.net_annual_cashflow != null ? r.net_annual_cashflow : null;
+        const netCfColor = netCf == null ? '#666' : netCf >= 0 ? '#4caf50' : '#f44336';
+        const netCfTxt = netCf == null ? '—' : (netCf >= 0 ? '+' : '') + _fmtCrore(netCf);
+        const netCfCell = hasFire
+            ? `<td style="padding:5px 8px;text-align:right;color:${netCfColor};font-size:.85em">${netCfTxt}</td>`
+            : '';
+
+        tbody.insertAdjacentHTML('beforeend', `
+          <tr style="border-bottom:1px solid #1e1e2e;background:${rowBg}">
+            <td style="padding:5px 8px;font-weight:bold;position:sticky;left:0;background:${stickyBg}">${r.year}</td>
+            ${phaseBadge}
+            ${calYrCell}
+            <td style="padding:5px 8px;text-align:right">${r.equity_end ? _fmtCrore(r.equity_end) : '—'}</td>
+            <td style="padding:5px 8px;text-align:right">${r.debt_end ? _fmtCrore(r.debt_end) : '—'}</td>
+            <td style="padding:5px 8px;text-align:right;font-weight:bold">${_fmtCrore(r.portfolio_end)}</td>
+            <td style="padding:5px 8px;text-align:right;color:${chgColor}">${chgTxt}</td>
+            <td style="padding:5px 8px;text-align:right">${_fmtCrore(r.annual_withdrawal)}</td>
+            <td style="padding:5px 8px;text-align:right;color:#aaa">${_fmtCrore(r.monthly_withdrawal)}/mo</td>
+            ${netCfCell}
+            <td style="padding:5px 8px;text-align:right;color:#ffb300">${r.tax_paid_year > 0 ? _fmtCrore(r.tax_paid_year) : '—'}</td>
+            <td style="padding:5px 8px">${repBadge}</td>
+            <td style="padding:5px 8px;text-align:right;color:${(r.equity_return_pct||0)>=0?'#4caf50':'#f44336'}">${r.equity_return_pct!=null ? ((r.equity_return_pct>0?'+':'')+r.equity_return_pct+'%') : '—'}</td>
+            <td style="padding:5px 8px;text-align:right;color:#64b5f6">${r.replenishment_amount !== 0 ? _fmtCrore(Math.abs(r.replenishment_amount)) : '—'}</td>
+            <td style="padding:5px 8px;text-align:right;color:${(r.withdrawal_rate_pct||0)>6?'#f44336':(r.withdrawal_rate_pct||0)>4?'#ffb300':'#4caf50'}">${r.withdrawal_rate_pct!=null ? r.withdrawal_rate_pct+'%' : '—'}</td>
+          </tr>
+        `);
+    });
+
+    section.style.display = 'block';
+}
+
+function _renderRetMetrics(s, params) {
+    const surv20Color = s.survival_20yr_pct >= 80 ? '#4caf50' : s.survival_20yr_pct >= 60 ? '#ffb300' : '#f44336';
+    const surv30Color = s.survival_30yr_pct >= 70 ? '#4caf50' : s.survival_30yr_pct >= 50 ? '#ffb300' : '#f44336';
+    const swrColor = s.safe_withdrawal_rate_pct >= 3.5 ? '#4caf50' : '#ffb300';
+    const taxColor = s.tax_drag_pct > 10 ? '#f44336' : '#ffb300';
+
+    const cards = [
+        { label: 'Survival at 20yr', value: (s.survival_20yr_pct || 0).toFixed(1) + '%', color: surv20Color },
+        { label: 'Survival at 30yr', value: (s.survival_30yr_pct || 0).toFixed(1) + '%', color: surv30Color },
+        { label: 'Median Final Corpus', value: _fmtCrore(s.median_final_corpus), color: '#64b5f6' },
+        { label: 'Safe Withdrawal Rate', value: (s.safe_withdrawal_rate_pct || 0).toFixed(2) + '% p.a.', color: swrColor },
+        { label: 'Tax Drag', value: (s.tax_drag_pct || 0).toFixed(1) + '%', color: taxColor, note: 'vs no-tax' },
+        { label: 'Avg Emergency Refills', value: (s.median_emergency_count || 0).toFixed(1), color: '#aaa' },
+        ...(s.median_ruin_year != null ? [{ label: 'Median Ruin Year', value: 'Yr ' + (s.median_ruin_year || 0).toFixed(0), color: s.median_ruin_year < (params.total_years || 30) ? '#ff7043' : '#4caf50', note: 'failed paths' }] : []),
+        ...(s.corpus_needed_at_swr != null ? [{ label: 'Corpus Needed @ SWR', value: _fmtCrore(s.corpus_needed_at_swr), color: '#64b5f6', note: 'for your WD' }] : []),
+        ...(s.portfolio_cagr_pct != null ? [{ label: 'Portfolio CAGR', value: (s.portfolio_cagr_pct >= 0 ? '+' : '') + (s.portfolio_cagr_pct || 0).toFixed(1) + '%', color: s.portfolio_cagr_pct >= 5 ? '#4caf50' : '#ffb300', note: 'median path' }] : []),
+    ];
+
+    document.getElementById('ret_metric_cards').innerHTML = cards.map(c => `
+        <div style="background:#12121f;border-radius:8px;padding:14px;border-left:3px solid ${c.color}">
+            <div style="font-size:.75em;color:#aaa;margin-bottom:4px">${c.label}${c.note ? ' <span style=\'color:#666\'>(' + c.note + ')</span>' : ''}</div>
+            <div style="font-size:1.4em;font-weight:700;color:${c.color}">${c.value}</div>
+        </div>`).join('');
+
+    // ── FIRE Phase Summary Cards (shown only for Coast / Barista) ─────────
+    const fireSection = document.getElementById('ret_fire_phase_summary');
+    const fireMode = s.fire_mode || 'classic';
+    if (fireMode !== 'classic' && fireSection) {
+        const modeIcon = fireMode === 'coast' ? '⛵' : '☕';
+        const modeLabel = fireMode === 'coast' ? 'Coast' : 'Barista';
+        const tealColor = '#00c8b4';
+        const amberColor = '#ffb300';
+        const modeColor = fireMode === 'coast' ? tealColor : amberColor;
+        const p2WD = s.expected_phase2_starting_withdrawal || 0;
+        const p2Median = s.corpus_at_phase2_start_median || 0;
+        const p2P10 = s.corpus_at_phase2_start_p10 || 0;
+        const p2P90 = s.corpus_at_phase2_start_p90 || 0;
+        const p1Cagr = s.phase1_portfolio_cagr_pct || 0;
+        const p2Surv = s.phase2_survival_pct || 0;
+        const p1Years = s.phase1_years || 0;
+        const netContrib = s.net_phase1_contribution_total || 0;
+
+        fireSection.innerHTML = `
+          <div style="margin:16px 0;border:1px solid ${modeColor}33;border-radius:10px;padding:16px">
+            <div style="font-size:.85em;font-weight:700;color:${modeColor};margin-bottom:12px;letter-spacing:.04em">${modeIcon} ${modeLabel.toUpperCase()} FIRE — PHASE SUMMARY</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+              <div style="background:#0d0d1a;border-radius:8px;padding:12px;border-left:3px solid ${modeColor}">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:4px">Corpus at Full SWP Start</div>
+                <div style="font-size:1.1em;font-weight:700;color:${modeColor}">${_fmtCrore(p2Median)}</div>
+                <div style="font-size:.72em;color:#666;margin-top:2px">P10: ${_fmtCrore(p2P10)} — P90: ${_fmtCrore(p2P90)}</div>
+              </div>
+              <div style="background:#0d0d1a;border-radius:8px;padding:12px;border-left:3px solid #64b5f6">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:4px">Expected Monthly WD at Full SWP</div>
+                <div style="font-size:1.1em;font-weight:700;color:#64b5f6">${_fmtCrore(p2WD)}/mo</div>
+                <div style="font-size:.72em;color:#666;margin-top:2px">₹${Math.round(params.monthly_withdrawal||0).toLocaleString('en-IN')}/mo today inflated ${p1Years}yr</div>
+              </div>
+              <div style="background:#0d0d1a;border-radius:8px;padding:12px;border-left:3px solid ${p2Surv>=70?'#4caf50':p2Surv>=50?'#ffb300':'#f44336'}">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:4px">Phase 2 Survival</div>
+                <div style="font-size:1.1em;font-weight:700;color:${p2Surv>=70?'#4caf50':p2Surv>=50?'#ffb300':'#f44336'}">${(p2Surv || 0).toFixed(1)}%</div>
+                <div style="font-size:.72em;color:#666;margin-top:2px">paths surviving through full horizon</div>
+              </div>
+              <div style="background:#0d0d1a;border-radius:8px;padding:12px;border-left:3px solid ${p1Cagr>=8?'#4caf50':'#ffb300'}">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:4px">Phase 1 Portfolio CAGR</div>
+                <div style="font-size:1.1em;font-weight:700;color:${p1Cagr>=8?'#4caf50':'#ffb300'}">${p1Cagr>=0?'+':''}${(p1Cagr || 0).toFixed(1)}% p.a.</div>
+                <div style="font-size:.72em;color:#666;margin-top:2px">median path over ${p1Years}-year ${modeLabel} phase</div>
+              </div>
+              ${netContrib > 0 ? `
+              <div style="background:#0d0d1a;border-radius:8px;padding:12px;border-left:3px solid #81c784">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:4px">Total Contributions (Phase 1)</div>
+                <div style="font-size:1.1em;font-weight:700;color:#81c784">${_fmtCrore(netContrib)}</div>
+                <div style="font-size:.72em;color:#666;margin-top:2px">nominal, inflation-adjusted annually</div>
+              </div>` : ''}
+            </div>
+          </div>`;
+        fireSection.style.display = 'block';
+    } else if (fireSection) {
+        fireSection.style.display = 'none';
+    }
+
+    // ── Leverage summary banner ─────────────────────────────────────────
+    let leverageSection = document.getElementById('ret_leverage_summary');
+    if (!leverageSection) {
+        leverageSection = document.createElement('div');
+        leverageSection.id = 'ret_leverage_summary';
+        const warningsEl2 = document.getElementById('ret_warnings');
+        if (warningsEl2) warningsEl2.parentNode.insertBefore(leverageSection, warningsEl2);
+    }
+    if (s.use_leverage) {
+        const lRatio = s.leverage_ratio || 2.0;
+        const lBorrow = s.leverage_borrow_rate_pct || 9.0;
+        const lExp = s.effective_nifty_exposure_pct || 0;
+        const netCarryPct = ((lRatio - 1) * lBorrow).toFixed(2);
+        leverageSection.innerHTML = `
+          <div style="margin:16px 0;border:1px solid #b8860b55;border-radius:10px;padding:14px;background:#0f0f00">
+            <div style="font-size:.85em;font-weight:700;color:#ffe082;margin-bottom:10px;letter-spacing:.04em">⚡ LEVERAGED NIFTY — ACTIVE</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+              <div style="background:#12121f;border-radius:6px;padding:10px;border-left:3px solid #ffe082">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:3px">Leverage Ratio</div>
+                <div style="font-size:1.2em;font-weight:700;color:#ffe082">${(lRatio || 0).toFixed(1)}×</div>
+                <div style="font-size:.7em;color:#666">cash bucket → Nifty futures</div>
+              </div>
+              <div style="background:#12121f;border-radius:6px;padding:10px;border-left:3px solid #81c784">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:3px">Effective Nifty Exposure</div>
+                <div style="font-size:1.2em;font-weight:700;color:#81c784">${(lExp || 0).toFixed(1)}%</div>
+                <div style="font-size:.7em;color:#666">of total corpus (direct + leveraged)</div>
+              </div>
+              <div style="background:#12121f;border-radius:6px;padding:10px;border-left:3px solid #ff8a65">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:3px">Gross Borrowing Rate</div>
+                <div style="font-size:1.2em;font-weight:700;color:#ff8a65">${(lBorrow || 0).toFixed(1)}% p.a.</div>
+                <div style="font-size:.7em;color:#666">net carry cost on borrowed portion</div>
+              </div>
+              <div style="background:#12121f;border-radius:6px;padding:10px;border-left:3px solid #ce93d8">
+                <div style="font-size:.72em;color:#aaa;margin-bottom:3px">Annual Carry Cost</div>
+                <div style="font-size:1.2em;font-weight:700;color:#ce93d8">${netCarryPct}% p.a.</div>
+                <div style="font-size:.7em;color:#666">financing cost as % of your margin capital</div>
+              </div>
+            </div>
+            <div style="font-size:.72em;color:#888;line-height:1.5;border-top:1px solid #2a2a00;padding-top:8px">
+              ℹ Tax: leveraged futures P&amp;L taxed as business income at your slab rate (${params.income_tax_bracket_pct || 30}%) — not LTCG.
+              Losses in down months pass through in full. Margin call protection: losses capped at 100% of margin capital (position auto-closes before total wipeout).
+            </div>
+          </div>`;
+        leverageSection.style.display = 'block';
+    } else {
+        leverageSection.style.display = 'none';
+    }
+
+    // ── Sustainability warnings ─────────────────────────────────────────
+    const warnings = [];
+    const actualRate = s.actual_withdrawal_rate_pct || 0;
+    const safeRate   = s.safe_withdrawal_rate_pct   || 0;
+
+    if (actualRate > safeRate && safeRate > 0) {
+        warnings.push({
+            icon: '⚠️',
+            title: 'Withdrawal rate unsustainable',
+            msg: `Your withdrawal is <strong>${(actualRate || 0).toFixed(2)}% p.a.</strong> of corpus, but the safe withdrawal rate for these parameters is only <strong>${(safeRate || 0).toFixed(2)}% p.a.</strong> Reduce monthly withdrawal or increase corpus.`,
+        });
+    }
+
+    const debtMonths = s.debt_months_coverage || 0;
+    if (!s.use_leverage && debtMonths < 12) {
+        warnings.push({
+            icon: '🚨',
+            title: 'Debt bucket too small',
+            msg: `Initial debt allocation covers only <strong>${(debtMonths || 0).toFixed(1)} months</strong> of withdrawals. Emergency replenishments will fire immediately and repeatedly, forcing costly equity sales at market prices. Increase Debt % or reduce monthly withdrawal.`,
+        });
+    }
+
+    if (!s.use_leverage && s.median_emergency_count > s.survival_30yr_pct / 20) {
+        warnings.push({
+            icon: '🔁',
+            title: 'Frequent emergency replenishments',
+            msg: `Average <strong>${(s.median_emergency_count || 0).toFixed(1)} emergency refills</strong> per simulation — each forces an equity sale regardless of market conditions, degrading returns over time.`,
+        });
+    }
+
+    const warningsEl = document.getElementById('ret_warnings');
+    if (warnings.length > 0) {
+        warningsEl.innerHTML = warnings.map(w => `
+            <div style="background:rgba(244,67,54,0.1);border:1px solid rgba(244,67,54,0.4);border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start">
+                <span style="font-size:1.4em;line-height:1">${w.icon}</span>
+                <div>
+                    <div style="font-weight:700;color:#f44336;margin-bottom:4px">${w.title}</div>
+                    <div style="font-size:.88em;color:#ccc;line-height:1.5">${w.msg}</div>
+                </div>
+            </div>`).join('');
+        warningsEl.style.display = 'block';
+    } else {
+        warningsEl.innerHTML = '';
+        warningsEl.style.display = 'none';
+    }
+}
+
+function _renderFanChart(percentiles, totalYears, replenishYears, debtMedians, fireMode, phase1Years, useLeverage) {
+    const labels = percentiles.map(p => 'Yr ' + p.year);
+    const datasets = [
+        { label: 'p5',  data: percentiles.map(p => p.p5),  borderColor:'#e53935', backgroundColor:'rgba(229,57,53,0.08)', fill:false, borderWidth:1, pointRadius:0, borderDash:[4,3] },
+        { label: 'p25', data: percentiles.map(p => p.p25), borderColor:'#fb8c00', backgroundColor:'rgba(251,140,0,0.12)', fill:'-1', borderWidth:1, pointRadius:0 },
+        { label: 'p50 (median)', data: percentiles.map(p => p.p50), borderColor:'#42a5f5', backgroundColor:'rgba(66,165,245,0.15)', fill:'-1', borderWidth:2.5, pointRadius:0 },
+        { label: 'p75', data: percentiles.map(p => p.p75), borderColor:'#66bb6a', backgroundColor:'rgba(102,187,106,0.12)', fill:'-1', borderWidth:1, pointRadius:0 },
+        { label: 'p95', data: percentiles.map(p => p.p95), borderColor:'#26a69a', backgroundColor:'rgba(38,166,154,0.08)', fill:'-1', borderWidth:1, pointRadius:0, borderDash:[4,3] },
+    ];
+    if (debtMedians && debtMedians.length > 0) {
+        const debtLabel = useLeverage ? 'Leveraged bucket (p50)' : 'Debt bucket (p50)';
+        const debtColor = useLeverage ? 'rgba(255,224,130,0.9)' : 'rgba(255,193,7,0.7)';
+        datasets.push({ label: debtLabel, data: debtMedians.map(d => d.p50), borderColor: debtColor, fill:false, borderWidth:1.5, pointRadius:0, borderDash:[6,3] });
+    }
+
+    // Replenishment year vertical markers plugin
+    const replYears = [];
+    if (replenishYears) { for (let y = replenishYears; y <= totalYears; y += replenishYears) replYears.push(y); }
+
+    // Phase 1 shading plugin (Coast = teal, Barista = amber)
+    const phaseShadePlugin = {
+        id: 'phaseShade',
+        beforeDraw(chart) {
+            if (!fireMode || fireMode === 'classic' || !phase1Years || phase1Years <= 0) return;
+            const { ctx, scales: { x, y } } = chart;
+            const x0 = x.getPixelForValue('Yr 0');
+            const xEnd = x.getPixelForValue('Yr ' + Math.min(phase1Years, totalYears));
+            if (!x0 || !xEnd) return;
+            ctx.save();
+            ctx.fillStyle = fireMode === 'coast' ? 'rgba(0,200,180,0.07)' : 'rgba(255,180,0,0.07)';
+            ctx.fillRect(x0, y.top, xEnd - x0, y.bottom - y.top);
+            // Phase label
+            ctx.fillStyle = fireMode === 'coast' ? 'rgba(0,200,180,0.75)' : 'rgba(255,193,7,0.75)';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(fireMode === 'coast' ? '⛵ Coast Phase' : '☕ Barista Phase', x0 + 6, y.top + 16);
+            ctx.restore();
+        }
+    };
+
+    const replLinesPlugin = {
+        id: 'replLines',
+        afterDraw(chart) {
+            const { ctx, scales: { x, y } } = chart;
+            replYears.forEach(yr => {
+                const xPos = x.getPixelForValue('Yr ' + yr);
+                if (!xPos) return;
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255,193,7,0.35)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(xPos, y.top);
+                ctx.lineTo(xPos, y.bottom);
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255,193,7,0.6)';
+                ctx.font = '9px sans-serif';
+                ctx.fillText('↑Repl', xPos + 2, y.top + 10);
+                ctx.restore();
+            });
+        }
+    };
+
+    const config = {
+        type: 'line',
+        data: { labels, datasets },
+        plugins: [phaseShadePlugin, replLinesPlugin],
+        options: {
+            responsive:true,
+            plugins: { legend:{labels:{color:'#e0e0e0',font:{size:11}}}, tooltip:{callbacks:{label: ctx => ctx.dataset.label + ': ' + _fmtCrore(ctx.raw)}} },
+            scales: {
+                x: { ticks:{color:'#aaa'}, grid:{color:'rgba(255,255,255,0.05)'} },
+                y: { ticks:{color:'#aaa', callback: v => _fmtCrore(v)}, grid:{color:'rgba(255,255,255,0.05)'} },
+            },
+        },
+    };
+    if (_retFanChart) _retFanChart.destroy();
+    _retFanChart = new Chart(document.getElementById('ret_fan_chart'), config);
+}
+
+function _exportYearlyCSV() {
+    const tbody = document.getElementById('ret_yearly_tbody');
+    if (!tbody || !tbody.rows.length) { toast('No table data to export', 'info'); return; }
+    // Build headers from the actual thead to match rendered columns
+    const thead = document.getElementById('ret_yearly_thead');
+    const headers = thead
+        ? Array.from(thead.querySelectorAll('th')).map(th => th.innerText.trim()).filter(t => t.length > 0)
+        : ['Year','CalYr','Equity','Debt','Portfolio','Change%','AnnualWD','MonthlyWD','TaxPaid','Replenishment','EqRet%','ReplAmount','WDRate%'];
+    const rows = [headers.join(',')];
+    Array.from(tbody.rows).forEach(tr => {
+        const cells = Array.from(tr.cells).map(td => '"' + td.innerText.replace(/"/g, '""') + '"');
+        rows.push(cells.join(','));
+    });
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'swp_yearly_stats.csv'; a.click();
+    URL.revokeObjectURL(url);
+}
+
+function _renderSurvivalChart(survivalByYear) {
+    const labels = survivalByYear.map(d => 'Yr ' + d.year);
+    const data = survivalByYear.map(d => d.survival_pct);
+    const bgColors = data.map(v => v >= 70 ? 'rgba(76,175,80,0.7)' : v >= 50 ? 'rgba(255,179,0,0.7)' : 'rgba(244,67,54,0.7)');
+    const config = {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{ label: 'Survival %', data, borderColor:'#42a5f5', backgroundColor:'rgba(66,165,245,0.15)', fill:true, pointBackgroundColor:bgColors, pointRadius:3, borderWidth:2 }],
+        },
+        options: {
+            responsive:true,
+            plugins: { legend:{display:false} },
+            scales: {
+                x: { ticks:{color:'#aaa',maxTicksLimit:10}, grid:{color:'rgba(255,255,255,0.05)'} },
+                y: { min:0, max:100, ticks:{color:'#aaa', callback: v => v + '%'}, grid:{color:'rgba(255,255,255,0.05)'} },
+            },
+        },
+    };
+    if (_retSurvivalChart) _retSurvivalChart.destroy();
+    _retSurvivalChart = new Chart(document.getElementById('ret_survival_chart'), config);
+}
+
+function _renderRuinChart(ruinHistogram, totalYears) {
+    if (!ruinHistogram || ruinHistogram.length === 0) {
+        document.getElementById('ret_ruin_chart').parentElement.innerHTML += '<p style="color:#4caf50;text-align:center">✅ 100% of paths survived the full horizon.</p>';
+        return;
+    }
+    const labels = ruinHistogram.map(d => 'Yr ' + d.year);
+    const data = ruinHistogram.map(d => d.count);
+    const config = {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{ label: 'Paths Failed', data, backgroundColor:'rgba(244,67,54,0.6)', borderColor:'#f44336', borderWidth:1 }],
+        },
+        options: {
+            responsive:true,
+            plugins: { legend:{display:false}, tooltip:{callbacks:{label: ctx => ctx.raw + ' paths (' + ruinHistogram[ctx.dataIndex].pct_of_total.toFixed(1) + '%)'}} },
+            scales: {
+                x: { ticks:{color:'#aaa',maxTicksLimit:15}, grid:{color:'rgba(255,255,255,0.05)'} },
+                y: { ticks:{color:'#aaa'}, grid:{color:'rgba(255,255,255,0.05)'} },
+            },
+        },
+    };
+    if (_retRuinChart) _retRuinChart.destroy();
+    _retRuinChart = new Chart(document.getElementById('ret_ruin_chart'), config);
+}
+
+function _renderAssumptions(data) {
+    const p = data.params;
+    const debtLabels = {liquid_fund:'Liquid Fund (Repo+0.3%)', short_term_debt:'Short-term Debt (Repo+1.5%)', bank_fd:'Bank FD (Repo+0.5%)'};
+    // Use summary to get leverage info if available
+    const s = data.summary || {};
+    const useLev = s.use_leverage || false;
+    const levPart = useLev
+        ? `Cash bucket: <strong style="color:#ffe082">⚡ ${(s.leverage_ratio || 0).toFixed(1)}× Leveraged Nifty</strong> (borrow ${(s.leverage_borrow_rate_pct || 0).toFixed(1)}% p.a.) &nbsp;|&nbsp;`
+        : `Debt: ${debtLabels[p.debt_instrument] || p.debt_instrument} &nbsp;|&nbsp;`;
+    document.getElementById('ret_assumptions').innerHTML = `
+        <strong>Assumptions:</strong>&nbsp;
+        Corpus ₹${((p.initial_corpus/1e7) || 0).toFixed(2)} Cr &nbsp;|&nbsp;
+        Equity ${p.equity_pct}% / Cash ${100 - p.equity_pct}% &nbsp;|&nbsp;
+        Monthly WD ₹${p.monthly_withdrawal.toLocaleString('en-IN')} (inflation-adjusted @ ${p.inflation_rate_pct}% p.a.) &nbsp;|&nbsp;
+        ${levPart}
+        Tax: ${p.tax_enabled ? 'Enabled (LTCG 12.5% > ₹1.25L, debt/futures as income)' : 'Disabled'} &nbsp;|&nbsp;
+        ${data.n_simulations} simulations over ${p.total_years} years &nbsp;|&nbsp;
+        Equity returns: Block-bootstrap from Nifty 50 history (2007-present)
+    `;
+}
+
+function _renderOptChart(data) {
+    const pts = data.points;
+    const labels = pts.map(p => p.equity_pct + '%');
+    const config = {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Survival 30yr (%)', data: pts.map(p => p.survival_30yr_pct), borderColor:'#42a5f5', backgroundColor:'transparent', yAxisID:'ySurv', borderWidth:2.5, pointRadius:4 },
+                { label: 'Median Corpus', data: pts.map(p => p.median_final_corpus / 1e7), borderColor:'#66bb6a', backgroundColor:'transparent', yAxisID:'yCorpus', borderWidth:2, borderDash:[5,3], pointRadius:3 },
+            ],
+        },
+        options: {
+            responsive:true,
+            plugins: { legend:{labels:{color:'#e0e0e0'}}, tooltip:{callbacks:{label: ctx => ctx.datasetIndex === 0 ? (ctx.raw || 0).toFixed(1) + '%' : '₹' + (ctx.raw || 0).toFixed(2) + ' Cr'}} },
+            scales: {
+                x: { ticks:{color:'#aaa'}, grid:{color:'rgba(255,255,255,0.05)'} },
+                ySurv:   { type:'linear', position:'left',  min:0, max:100, ticks:{color:'#42a5f5', callback: v => v + '%'}, grid:{color:'rgba(255,255,255,0.05)'} },
+                yCorpus: { type:'linear', position:'right', ticks:{color:'#66bb6a', callback: v => '₹' + v.toFixed(1) + 'Cr'}, grid:{display:false} },
+            },
+        },
+    };
+    if (_retOptChart) _retOptChart.destroy();
+    _retOptChart = new Chart(document.getElementById('ret_opt_chart'), config);
+}
+
+function _renderOptRecommendations(data) {
+    const cards = [
+        { title:'🛡 Max Survival', point: data.optimal_survival, color:'#42a5f5' },
+        { title:'💰 Max Median Corpus', point: data.optimal_median_corpus, color:'#66bb6a' },
+        { title:'⚖ Balanced (Recommended)', point: data.optimal_balanced, color:'#ffb300' },
+    ];
+    document.getElementById('ret_opt_recommendations').innerHTML = cards.map(c => `
+        <div style="background:#12121f;border-radius:8px;padding:14px;border-top:3px solid ${c.color}">
+            <div style="font-size:.85em;font-weight:700;color:${c.color};margin-bottom:8px">${c.title}</div>
+            <div style="font-size:1.3em;font-weight:700">${c.point.equity_pct}% Equity / ${c.point.debt_pct}% Debt</div>
+            <div style="font-size:.8em;color:#aaa;margin-top:6px">
+                Survival 30yr: <strong style="color:#e0e0e0">${(c.point.survival_30yr_pct || 0).toFixed(1)}%</strong><br>
+                Median Corpus: <strong style="color:#e0e0e0">${_fmtCrore(c.point.median_final_corpus)}</strong><br>
+                Safe WR: <strong style="color:#e0e0e0">${(c.point.safe_withdrawal_rate_pct || 0).toFixed(2)}% p.a.</strong><br>
+                Tax Drag: <strong style="color:#e0e0e0">${(c.point.tax_drag_pct || 0).toFixed(1)}%</strong>
+            </div>
+        </div>`).join('');
+}
+
+// ₿ CRYPTO LEVERAGE MONTE CARLO SIMULATOR
+// ════════════════════════════════════════════════════════
+
+let _cryFanChart = null;
+let _crySurvivalChart = null;
+let _cryRuinChart = null;
+let _cryAssetChart = null;
+
+async function syncCryptoData() {
+    const btn = document.getElementById('btnCrySync');
+    const status = document.getElementById('crySyncStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle"></span> Syncing…';
+    status.textContent = 'Fetching new data…';
+    try {
+        const r = await api('/api/crypto/sync', { method: 'POST' });
+        toast(`✅ Sync complete! +${r.rows_added || 0} new rows.`);
+        status.textContent = `Last sync: ${new Date().toLocaleTimeString()} (+${r.rows_added || 0} rows)`;
+        // Refresh the dropdown and current chart
+        await initCryptoTab();
+    } catch (e) {
+        toast('❌ Sync failed: ' + (e.message || e));
+        status.textContent = 'Sync failed';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🔄 Sync Latest Data';
+    }
+}
+
+async function initCryptoTab() {
+    try {
+        const data = await api('/api/crypto/available');
+        const sel = document.getElementById('cry_coin');
+        if (!sel) return;
+        
+        sel.innerHTML = '';
+        data.cryptos.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.id.charAt(0).toUpperCase() + c.id.slice(1)} (${c.ticker}) — [${c.date_range}]`;
+            sel.appendChild(opt);
+        });
+        if(data.cryptos.length > 0) {
+            loadCryptoAssetChart();
+        }
+    } catch(e) {
+        toast('Failed to load crypto assets: ' + e.message, 'error');
+    }
+}
+
+async function loadCryptoAssetChart() {
+    const sel = document.getElementById('cry_coin');
+    if (!sel || !sel.value) return;
+    const coin = sel.value;
+    try {
+        const data = await api(`/api/crypto/${coin}/chart`);
+        
+        const ctx = document.getElementById('cry_asset_chart').getContext('2d');
+        if (_cryAssetChart) _cryAssetChart.destroy();
+        
+        _cryAssetChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.dates,
+                datasets: [{
+                    label: `${coin.toUpperCase()} Price (USD)`,
+                    data: data.prices,
+                    borderColor: '#2196f3',
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    pointRadius: 0,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        type: 'logarithmic',
+                        grid: { color: '#2a2a3a' },
+                        ticks: {
+                            color: '#90a4ae',
+                            callback: function(value) {
+                                if (value === 0) return '0';
+                                return '$' + value.toLocaleString('en-US', {notation: 'compact'});
+                            }
+                        }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#90a4ae', maxTicksLimit: 12 }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                }
+            }
+        });
+    } catch(e) {
+        console.error('Chart load error:', e);
+    }
+}
+
+async function runCryptoSimulation() {
+    const btn = document.getElementById('cry_run_btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Simulating...';
+    try {
+        const coin = document.getElementById('cry_coin').value;
+        const leverage = parseFloat(document.getElementById('cry_leverage').value);
+        const capital = parseFloat(document.getElementById('cry_capital').value);
+        const borrow_rate = parseFloat(document.getElementById('cry_borrow_rate').value);
+        const years = parseInt(document.getElementById('cry_years').value);
+        const simulations = parseInt(document.getElementById('cry_simulations').value);
+        const block_size = parseInt(document.getElementById('cry_block_size').value);
+        const liq_thresh = parseFloat(document.getElementById('cry_liq_thresh').value);
+        
+        const params = {
+            crypto_id: coin,
+            leverage_ratio: leverage,
+            borrow_rate_pct: borrow_rate,
+            initial_capital: capital,
+            horizon_years: years,
+            n_simulations: simulations,
+            block_size_months: block_size,
+            liquidation_threshold_pct: liq_thresh
+        };
+        
+        const data = await api('/api/crypto/simulate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params),
+        });
+        
+        document.getElementById('cry_results').style.display = 'block';
+        _renderCryptoMetrics(data, params);
+        _renderCryptoFanChart(data.portfolio_percentiles, params.horizon_years);
+        _renderCryptoSurvivalChart(data.survival_by_year);
+        _renderCryptoRuinChart(data.ruin_by_year, params.horizon_years);
+        _renderCryptoYearlyTable(data.yearly_stats);
+        
+        if (data.liquidation_rate_pct > 80.0) {
+            const warningBox = document.getElementById('cry_warnings');
+            warningBox.style.display = 'block';
+            warningBox.textContent = `🛑 EXTREME RISK DETECTED: Under this configuration, there is a ${(data.liquidation_rate_pct || 0).toFixed(1)}% probability of total liquidation (drawdown exceeding safety threshold). At ${params.leverage_ratio}x leverage, Bitcoin's historic volatility has triggered catastrophic wipeouts in the vast majority of paths.`;
+        } else {
+            document.getElementById('cry_warnings').style.display = 'none';
+        }
+        
+    } catch(e) {
+        toast('Simulation failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Run Simulation';
+    }
+}
+
+async function runCryptoSweep() {
+    const btn = document.getElementById('cry_sweep_btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Sweeping...';
+    try {
+        const coin = document.getElementById('cry_coin').value;
+        const capital = parseFloat(document.getElementById('cry_capital').value);
+        const borrow_rate = parseFloat(document.getElementById('cry_borrow_rate').value);
+        const years = parseInt(document.getElementById('cry_years').value);
+        const simulations = parseInt(document.getElementById('cry_simulations').value);
+        const block_size = parseInt(document.getElementById('cry_block_size').value);
+        const liq_thresh = parseFloat(document.getElementById('cry_liq_thresh').value);
+        
+        const params = {
+            crypto_id: coin,
+            borrow_rate_pct: borrow_rate,
+            initial_capital: capital,
+            horizon_years: years,
+            n_simulations: Math.min(simulations, 500),
+            block_size_months: block_size,
+            liquidation_threshold_pct: liq_thresh,
+            leverage_ratios: [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+        };
+        
+        const data = await api('/api/crypto/sweep', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params),
+        });
+        
+        document.getElementById('cry_sweep_results').style.display = 'block';
+        _renderCryptoSweepTable(data, params.horizon_years);
+        
+    } catch(e) {
+        toast('Sweep failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Run Leverage Sweep';
+    }
+}
+
+function _renderCryptoMetrics(data, params) {
+    const survColor = data.survival_by_year.length > 0 && data.survival_by_year[data.survival_by_year.length - 1].survival_rate_pct >= 80 ? '#4caf50' : data.survival_by_year.length > 0 && data.survival_by_year[data.survival_by_year.length - 1].survival_rate_pct >= 50 ? '#ffb300' : '#f44336';
+    const liqColor = data.liquidation_rate_pct > 50 ? '#f44336' : data.liquidation_rate_pct > 15 ? '#ffb300' : '#4caf50';
+    const cagrColor = data.median_cagr_pct >= 20 ? '#4caf50' : data.median_cagr_pct > 0 ? '#ffb300' : '#f44336';
+    
+    const finalValueFmt = data.median_final_value <= 0 ? '$0 / ₹0 (Wiped)' : (data.median_final_value >= 1e7 ? (data.median_final_value/1e7).toFixed(2) + ' Cr' : data.median_final_value.toLocaleString('en-US', {maximumFractionDigits:0}));
+    
+    const cards = [
+        { label: 'Long-term Survival', value: data.survival_by_year.length > 0 ? data.survival_by_year[data.survival_by_year.length - 1].survival_rate_pct.toFixed(1) + '%' : '—', color: survColor, note: `${params.horizon_years} Yr` },
+        { label: 'Total Liquidation Rate', value: (data.liquidation_rate_pct || 0).toFixed(1) + '%', color: liqColor, note: 'full horizon' },
+        { label: 'Median Final Value', value: finalValueFmt, color: '#64b5f6', note: 'P50 path' },
+        { label: 'Median CAGR', value: (data.median_cagr_pct || 0).toFixed(2) + '% p.a.', color: cagrColor, note: 'incl. failed paths' },
+    ];
+    
+    document.getElementById('cry_metric_cards').innerHTML = cards.map(c => `
+        <div style="background:#12121f;border-radius:8px;padding:14px;border-left:3px solid ${c.color}">
+            <div style="font-size:.75em;color:#aaa;margin-bottom:4px">${c.label}${c.note ? ' <span style=\'color:#666\'>(' + c.note + ')</span>' : ''}</div>
+            <div style="font-size:1.4em;font-weight:700;color:${c.color}">${c.value}</div>
+        </div>`).join('');
+}
+
+function _renderCryptoFanChart(percentiles, horizon) {
+    const ctx = document.getElementById('cry_fan_chart').getContext('2d');
+    if (_cryFanChart) _cryFanChart.destroy();
+    
+    const labels = percentiles.map(d => 'Yr ' + d.year);
+    
+    _cryFanChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'P95 (Optimistic)',
+                    data: percentiles.map(d => d.p95),
+                    borderColor: 'rgba(100, 181, 246, 0.4)',
+                    backgroundColor: 'rgba(100, 181, 246, 0.05)',
+                    fill: false,
+                    borderDash: [5, 5],
+                    pointRadius: 2,
+                    tension: 0.1
+                },
+                {
+                    label: 'P75',
+                    data: percentiles.map(d => d.p75),
+                    borderColor: 'rgba(76, 175, 80, 0.5)',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    fill: '+1',
+                    pointRadius: 2,
+                    tension: 0.1
+                },
+                {
+                    label: 'P50 (Median)',
+                    data: percentiles.map(d => d.p50),
+                    borderColor: '#ffb300',
+                    borderWidth: 3,
+                    fill: false,
+                    pointRadius: 3,
+                    tension: 0.1
+                },
+                {
+                    label: 'P25',
+                    data: percentiles.map(d => d.p25),
+                    borderColor: 'rgba(244, 67, 54, 0.5)',
+                    backgroundColor: 'rgba(244, 67, 54, 0.05)',
+                    fill: false,
+                    pointRadius: 2,
+                    tension: 0.1
+                },
+                {
+                    label: 'P5 (Pessimistic)',
+                    data: percentiles.map(d => d.p5),
+                    borderColor: 'rgba(244, 67, 54, 0.3)',
+                    backgroundColor: 'rgba(244, 67, 54, 0.02)',
+                    fill: false,
+                    borderDash: [5, 5],
+                    pointRadius: 1,
+                    tension: 0.1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    type: 'logarithmic',
+                    grid: { color: '#2a2a3a' },
+                    ticks: {
+                        color: '#90a4ae',
+                        callback: function(value) {
+                            if (value === 0) return '0';
+                            return value.toLocaleString('en-US', {notation: 'compact'});
+                        }
+                    }
+                },
+                x: {
+                    grid: { color: '#2a2a3a' },
+                    ticks: { color: '#90a4ae' }
+                }
+            },
+            plugins: {
+                legend: { labels: { color: '#fff' } }
+            }
+        }
+    });
+}
+
+function _renderCryptoSurvivalChart(survivalByYear) {
+    const ctx = document.getElementById('cry_survival_chart').getContext('2d');
+    if (_crySurvivalChart) _crySurvivalChart.destroy();
+    
+    _crySurvivalChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: survivalByYear.map(d => 'Yr ' + d.year),
+            datasets: [{
+                label: 'Survival Probability (%)',
+                data: survivalByYear.map(d => d.survival_rate_pct),
+                borderColor: '#4caf50',
+                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                fill: true,
+                tension: 0.2,
+                pointRadius: 3
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    grid: { color: '#2a2a3a' },
+                    ticks: { color: '#90a4ae' }
+                },
+                x: {
+                    grid: { color: '#2a2a3a' },
+                    ticks: { color: '#90a4ae' }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function _renderCryptoRuinChart(ruinByYear, horizon) {
+    const ctx = document.getElementById('cry_ruin_chart').getContext('2d');
+    if (_cryRuinChart) _cryRuinChart.destroy();
+    
+    _cryRuinChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ruinByYear.map(d => 'Yr ' + d.year),
+            datasets: [{
+                label: 'Liquidation Probability per Year (%)',
+                data: ruinByYear.map(d => d.liquidation_rate_pct),
+                backgroundColor: 'rgba(244, 67, 54, 0.6)',
+                borderColor: '#f44336',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    min: 0,
+                    grid: { color: '#2a2a3a' },
+                    ticks: { color: '#90a4ae' }
+                },
+                x: {
+                    grid: { color: '#2a2a3a' },
+                    ticks: { color: '#90a4ae' }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function _renderCryptoYearlyTable(yearlyStats) {
+    const tbody = document.getElementById('cry_yearly_tbody');
+    tbody.innerHTML = '';
+    
+    yearlyStats.forEach(r => {
+        const valFmt = r.portfolio_value <= 0 ? '<span style="color:#f44336">WIPED (Liquidated)</span>' : r.portfolio_value.toLocaleString('en-US', {maximumFractionDigits:0});
+        const retFmt = r.year === 0 ? '—' : `<span style="color:${r.yearly_return_pct >= 0 ? '#4caf50' : '#f44336'}">${r.yearly_return_pct >= 0 ? '+' : ''}${(r.yearly_return_pct || 0).toFixed(2)}%</span>`;
+        const costFmt = r.year === 0 || r.portfolio_value <= 0 ? '—' : r.borrow_cost_paid.toLocaleString('en-US', {maximumFractionDigits:0});
+        const statusTxt = r.liquidated ? `<span style="background:#512da8;color:#fff;padding:2px 6px;border-radius:4px;font-size:0.8em">💥 Liquidation at Mo ${r.liquidation_month}</span>` : r.portfolio_value <= 0 ? '<span style="color:#f44336">Dead</span>' : '<span style="color:#4caf50">Active</span>';
+        
+        tbody.insertAdjacentHTML('beforeend', `
+          <tr style="border-bottom:1px solid #1e1e2e; text-align:right">
+            <td style="padding:6px 8px;font-weight:bold;text-align:left">${r.year}</td>
+            <td style="padding:6px 8px">${valFmt}</td>
+            <td style="padding:6px 8px">${retFmt}</td>
+            <td style="padding:6px 8px">${costFmt}</td>
+            <td style="padding:6px 8px;text-align:left">${statusTxt}</td>
+          </tr>
+        `);
+    });
+    
+    document.getElementById('cry_yearly_section').style.display = 'block';
+}
+
+function _renderCryptoSweepTable(sweepData, horizon) {
+    const tbody = document.getElementById('cry_sweep_tbody');
+    tbody.innerHTML = '';
+    
+    let bestLev = 1.0;
+    let maxCAGR = -100.0;
+    
+    sweepData.forEach(pt => {
+        const surv5Color = pt.survival_5yr_pct >= 80 ? '#2e7d32' : pt.survival_5yr_pct >= 50 ? '#e65100' : '#b71c1c';
+        const surv10Color = pt.survival_10yr_pct >= 80 ? '#2e7d32' : pt.survival_10yr_pct >= 50 ? '#e65100' : '#b71c1c';
+        const surv20Color = pt.survival_20yr_pct >= 80 ? '#2e7d32' : pt.survival_20yr_pct >= 50 ? '#e65100' : '#b71c1c';
+        
+        const cagrColor = pt.median_cagr_pct > 20 ? '#4caf50' : pt.median_cagr_pct > 0 ? '#ffb300' : '#f44336';
+        
+        tbody.insertAdjacentHTML('beforeend', `
+          <tr style="border-bottom:1px solid #1e1e2e">
+            <td style="padding:8px;font-weight:bold;text-align:left">${(pt.leverage_ratio || 0).toFixed(1)}x</td>
+            <td style="padding:8px;color:${surv5Color};font-weight:bold">${(pt.survival_5yr_pct || 0).toFixed(1)}%</td>
+            <td style="padding:8px;color:${surv10Color};font-weight:bold">${(pt.survival_10yr_pct || 0).toFixed(1)}%</td>
+            <td style="padding:8px;color:${surv20Color};font-weight:bold">${(pt.survival_20yr_pct || 0).toFixed(1)}%</td>
+            <td style="padding:8px;color:${cagrColor};font-weight:bold">${(pt.median_cagr_pct || 0).toFixed(2)}%</td>
+            <td style="padding:8px;color:${pt.liquidation_rate_pct > 40 ? '#f44336' : '#4caf50'}">${(pt.liquidation_rate_pct || 0).toFixed(1)}%</td>
+          </tr>
+        `);
+        
+        const survivalAtHorizon = horizon <= 5 ? pt.survival_5yr_pct : horizon <= 10 ? pt.survival_10yr_pct : pt.survival_20yr_pct;
+        if (survivalAtHorizon >= 70.0 && pt.median_cagr_pct > maxCAGR) {
+            maxCAGR = pt.median_cagr_pct;
+            bestLev = pt.leverage_ratio;
+        }
+    });
+    
+    const recBox = document.getElementById('cry_sweep_recommendation');
+    if (maxCAGR > -100.0) {
+        recBox.innerHTML = `🛡 Recommended Optimal Leverage: <strong style="color:#4caf50;font-size:1.15em">${(bestLev || 0).toFixed(1)}x</strong>.<br> This ratio maintains a survival rate above 70% over your horizon while maximizing median returns (${(maxCAGR || 0).toFixed(2)}% CAGR). At leverage ratios higher than this, excessive volatility drag and severe liquidation risks degrade long-term terminal capital outcomes.`;
+    } else {
+        recBox.innerHTML = `⚠ Risk Warning: <strong style="color:#f44336;font-size:1.1em">No leverage survived above 70% threshold!</strong>.<br> Bitcoin's massive historic volatility makes <strong>1.0x (No Leverage)</strong> the only truly safe and mathematically robust path to ensure long-term survivability without liquidation over a ${horizon}-year horizon.`;
+    }
+}
+
+function updateCryStrategyParams() {
+    const stype = document.getElementById('cryBtStrategyType').value;
+    const strategy = STRATEGY_REGISTRY[stype];
+    if (!strategy) return;
+    document.getElementById('cryStrategyDesc').innerText = strategy.description || '';
+    
+    const container = document.getElementById('cryBtParamsContainer');
+    const paramDefs = strategy.params || {};
+    
+    container.innerHTML = Object.entries(paramDefs).map(([name, desc]) => {
+        let defaultVal = '';
+        const m = desc.match(/default:\s*([-0-9.]+)/i);
+        if (m) defaultVal = m[1];
+        return `
+                  <div style="margin-bottom:12px">
+              <label style="font-size:.8em;color:#aaa">${name} <span title="${desc}" style="cursor:help;">&#9432;</span></label>
+              <div style="font-size:0.75em; color:#666; margin-bottom:4px; line-height:1.3">${desc}</div>
+              <input type="text" id="cryBtParam_${name}" value="${defaultVal}" style="width:100%;background:#12121f;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:6px">
+          </div>
+        `;
+    }).join('');
+}
+
+function getCryCustomStrategyParams() {
+    const stype = document.getElementById('cryBtStrategyType').value;
+    const strategy = STRATEGY_REGISTRY[stype];
+    if (!strategy) return {};
+    const params = {};
+    for (const name of Object.keys(strategy.params || {})) {
+        const input = document.getElementById(`cryBtParam_${name}`);
+        if (input && input.value !== '') {
+            const num = Number(input.value);
+            params[name] = isNaN(num) ? input.value : num;
+        }
+    }
+    return params;
+}
+
+let cryEquityChartInstance = null;
+async function runCryBacktest() {
+    const btn = document.getElementById('btnCryRunBacktest');
+    const spinner = document.getElementById('cryBtSpinner');
+    btn.disabled = true;
+    spinner.style.display = 'inline';
+
+    try {
+        const coin = document.getElementById('cry_coin').value;
+        const payload = {
+            crypto_id: coin,
+            initial_capital: parseFloat(document.getElementById('cryBtCapital').value),
+            position_size_pct: parseFloat(document.getElementById('cryBtPositionSize').value),
+            stop_loss_pct: parseFloat(document.getElementById('cryBtStopLoss').value),
+            take_profit_pct: parseFloat(document.getElementById('cryBtTakeProfit').value),
+            strategy_type: document.getElementById('cryBtStrategyType').value,
+            params: getCryCustomStrategyParams()
+        };
+
+        const result = await api('/api/backtest', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        
+        document.getElementById('cryBtResultPanel').style.display = 'block';
+        
+        // Render Stats
+        const retClass = result.total_return_pct >= 0 ? 'positive' : 'negative';
+        const statsHtml = `
+            <div style="background:#12121f;padding:12px;border-radius:6px;border-left:4px solid #1976d2">
+                <div style="font-size:.8em;color:#aaa">Final Capital</div>
+                <div style="font-size:1.2em">$${result.final_capital.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+            </div>
+            <div style="background:#12121f;padding:12px;border-radius:6px;border-left:4px solid ${result.total_return_pct >= 0 ? '#4caf50' : '#f44336'}">
+                <div style="font-size:.8em;color:#aaa">Total Return</div>
+                <div style="font-size:1.2em;color:${result.total_return_pct >= 0 ? '#4caf50' : '#f44336'}">${result.total_return_pct >= 0 ? '+' : ''}${(result.total_return_pct||0).toFixed(2)}%</div>
+            </div>
+            <div style="background:#12121f;padding:12px;border-radius:6px;border-left:4px solid #1976d2">
+                <div style="font-size:.8em;color:#aaa">Sharpe Ratio</div>
+                <div style="font-size:1.2em">${(result.sharpe_ratio||0).toFixed(2)}</div>
+            </div>
+            <div style="background:#12121f;padding:12px;border-radius:6px;border-left:4px solid #f44336">
+                <div style="font-size:.8em;color:#aaa">Max Drawdown</div>
+                <div style="font-size:1.2em;color:#f44336">${(result.max_drawdown_pct||0).toFixed(2)}%</div>
+            </div>
+            <div style="background:#12121f;padding:12px;border-radius:6px;border-left:4px solid #1976d2">
+                <div style="font-size:.8em;color:#aaa">Win Rate</div>
+                <div style="font-size:1.2em">${(result.win_rate_pct||0).toFixed(1)}% (${result.total_trades} trades)</div>
+            </div>
+        `;
+        document.getElementById('cryBtStats').innerHTML = statsHtml;
+        
+        // Render Chart
+        if (cryEquityChartInstance) { cryEquityChartInstance.destroy(); }
+        const parsed = Array.isArray(result.equity_curve) ? result.equity_curve : [];
+        if (parsed.length > 0) {
+            const labels = parsed.map(d => new Date(d.Date).toLocaleDateString());
+            const data = parsed.map(d => d.equity);
+            const ctx = document.getElementById('cryEquityChart').getContext('2d');
+            cryEquityChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Equity ($)',
+                        data: data,
+                        borderColor: '#4caf50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: "#333" }, ticks: { color: "#888" } },
+                        y: { grid: { color: "#333" }, ticks: { color: "#888" } }
+                    }
+                }
+            });
+        }
+
+    } catch (err) {
+        console.error(err);
+        alert('Backtest failed: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+    }
+}
 </script>
+
 </body>
 </html>

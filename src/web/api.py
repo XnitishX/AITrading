@@ -210,6 +210,7 @@ class BacktestReq(BaseModel):
     max_holding_bars: int = 0        # max bars to hold a position (0 = unlimited)
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    crypto_id: Optional[str] = None
 
 
 class CopilotMessageReq(BaseModel):
@@ -266,7 +267,10 @@ class SweepReq(BaseModel):
 async def index():
     html_path = STATIC_DIR / "index.html"
     if html_path.exists():
-        return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            content=html_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        )
     return HTMLResponse("<h1>AITrading – static/index.html not found</h1>")
 
 
@@ -536,9 +540,19 @@ def _run_single_backtest(stype: str, params: dict, strategy_id: Optional[int],
                          commission_pct: float = 0.02,
                          vol_target: float = 0.0,
                          cooldown_bars: int = 0,
-                         max_holding_bars: int = 0) -> dict:
+                         max_holding_bars: int = 0,
+                         crypto_id: Optional[str] = None) -> dict:
     """Run a single backtest and persist results."""
-    df = _get_df()
+    if crypto_id:
+        from config.settings import CRYPTO_RAW_DIR
+        csv_path = CRYPTO_RAW_DIR / f"{crypto_id}.csv"
+        if not csv_path.exists():
+            raise ValueError(f"Crypto data for {crypto_id} not found.")
+        df = pd.read_csv(csv_path)
+        df["Date"] = pd.to_datetime(df["Date"])
+    else:
+        df = _get_df()
+
     if start_date:
         df = df[df["Date"] >= pd.Timestamp(start_date)]
     if end_date:
@@ -574,7 +588,17 @@ def _run_single_backtest(stype: str, params: dict, strategy_id: Optional[int],
         bucket = np.arange(len(eq)) // step
         idx_min = eq.groupby(bucket)["equity"].idxmin()
         idx_max = eq.groupby(bucket)["equity"].idxmax()
-        keep = sorted(set(idx_min) | set(idx_max) | {0, len(eq) - 1})
+        
+        # Include all trade entry/exit bars so they are not missing from the downsampled graph
+        trade_bars = set()
+        for t in result.trades:
+            if t.entry_bar is not None:
+                trade_bars.add(t.entry_bar)
+            if t.exit_bar is not None:
+                trade_bars.add(t.exit_bar)
+        trade_bars = {b for b in trade_bars if 0 <= b < len(eq)}
+        
+        keep = sorted(set(idx_min) | set(idx_max) | {0, len(eq) - 1} | trade_bars)
         eq_sampled = eq.iloc[keep].copy()
     else:
         eq_sampled = eq.copy()
@@ -619,6 +643,9 @@ def _run_single_backtest(stype: str, params: dict, strategy_id: Optional[int],
         "avg_trade_pnl": result.avg_trade_pnl,
         "profit_factor": result.profit_factor,
         "max_consecutive_losses": result.max_consecutive_losses,
+        "max_consecutive_wins": result.max_consecutive_wins,
+        "max_consecutive_win_days": result.max_consecutive_win_days,
+        "max_consecutive_loss_days": result.max_consecutive_loss_days,
         "risk_reward_ratio": result.risk_reward_ratio,
         "max_drawdown_duration": result.max_drawdown_duration,
         "avg_trade_duration": result.avg_trade_duration,
@@ -685,13 +712,133 @@ async def api_run_backtest(req: BacktestReq):
             req.initial_capital, req.position_size_pct, req.stop_loss_pct, req.take_profit_pct,
             req.start_date, req.end_date, req.trailing_stop_pct,
             req.slippage_pct, req.commission_pct, req.vol_target, req.cooldown_bars,
-            req.max_holding_bars,
+            req.max_holding_bars, req.crypto_id,
         )
         return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Backtest error: %s\n%s", e, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backtest/optimize", tags=["Backtest"])
+async def api_optimize_backtest(req: BacktestReq):
+    try:
+        stype = req.strategy_type
+        if not stype:
+            raise HTTPException(status_code=400, detail="Provide strategy_type")
+
+        # Plausible Search Space definitions
+        param_grids = {
+            "sma_crossover": {
+                "fast_window": [10, 20, 50],
+                "slow_window": [100, 150, 200]
+            },
+            "rsi_mean_reversion": {
+                "oversold": [20, 25, 30, 35],
+                "overbought": [65, 70, 75, 80]
+            },
+            "macd_crossover": {
+                "fast_ema": [8, 12, 16],
+                "slow_ema": [Slow_Ema for Slow_Ema in [21, 26, 30]],
+                "signal_period": [7, 9, 12]
+            },
+            "bollinger_band": {
+                "window": [10, 20, 30],
+                "num_std": [1.5, 2.0, 2.5]
+            },
+            "atr_breakout": {
+                "sma_window": [10, 20],
+                "atr_period": [10, 14],
+                "atr_multiplier": [1.0, 1.5, 2.0]
+            },
+            "vix_regime": {
+                "buy_below": [12, 15, 18],
+                "sell_above": [20, 25, 30]
+            },
+            "ema_crossover": {
+                "fast_span": [5, 10, 15, 20],
+                "slow_span": [50, 100, 150]
+            },
+            "stochastic_oscillator": {
+                "k_period": [10, 14, 21],
+                "d_period": [3, 5],
+                "oversold": [15, 20, 25],
+                "overbought": [75, 80, 85]
+            },
+            "mean_reversion_zscore": {
+                "lookback": [10, 20, 30],
+                "entry_z": [-1.5, -2.0, -2.5],
+                "exit_z": [-0.5, 0.0, 0.5]
+            },
+            "macd_histogram": {
+                "fast_ema": [8, 12],
+                "slow_ema": [24, 26],
+                "signal_period": [7, 9]
+            },
+            "composite_sniper": {
+                "sma_period": [20, 50],
+                "rsi_period": [14],
+                "rsi_oversold": [30, 35],
+                "rsi_overbought": [65, 70],
+                "vix_calm_threshold": [15, 20],
+                "bb_window": [20],
+                "bb_num_std": [2.0]
+            }
+        }
+
+        grid = param_grids.get(stype)
+        if not grid:
+            raise HTTPException(status_code=400, detail=f"No optimization grid defined for {stype}")
+
+        # Compute cartesian product of parameters
+        import itertools
+        keys = list(grid.keys())
+        values = list(grid.values())
+        combinations = [dict(zip(keys, prod)) for prod in itertools.product(*values)]
+
+        best_score = -float('inf')
+        best_params = None
+        best_result = None
+        runs_count = 0
+
+        # We'll run the combinations
+        for p in combinations:
+            try:
+                result = _run_single_backtest(
+                    stype, p, None,
+                    req.initial_capital, req.position_size_pct, req.stop_loss_pct, req.take_profit_pct,
+                    req.start_date, req.end_date, req.trailing_stop_pct,
+                    req.slippage_pct, req.commission_pct, req.vol_target, req.cooldown_bars,
+                    req.max_holding_bars, req.crypto_id,
+                )
+                runs_count += 1
+                
+                # Metric to optimise: Sharpe Ratio, fallback to Total Return if Sharpe is None or equivalent.
+                sharpe = result.get("sharpe_ratio") or 0.0
+                total_return = result.get("total_return_pct") or -100.0
+                
+                # Combine Sharpe with a minor weight of total return for ties
+                score = sharpe + (total_return * 0.001)
+                if score > best_score:
+                    best_score = score
+                    best_params = p
+                    best_result = result
+            except Exception:
+                continue
+
+        if not best_result:
+            raise HTTPException(status_code=500, detail="Optimization failed - all runs crashed.")
+
+        return {
+            "best_params": best_params,
+            "best_score": best_score,
+            "evaluated_combinations": runs_count,
+            "best_result": best_result
+        }
+    except Exception as e:
+        logger.error("Optimizer error: %s\n%s", e, traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1021,7 +1168,7 @@ async def api_run_backtest_async(req: BacktestReq, background_tasks: BackgroundT
                 req.stop_loss_pct, req.take_profit_pct,
                 req.start_date, req.end_date, req.trailing_stop_pct,
                 req.slippage_pct, req.commission_pct, req.vol_target,
-                req.cooldown_bars, req.max_holding_bars,
+                req.cooldown_bars, req.max_holding_bars, req.crypto_id,
             )
             _bg_tasks[task_id]["status"] = "completed"
             _bg_tasks[task_id]["result"] = result
@@ -1355,3 +1502,697 @@ async def api_analyze_events(req: EventAnalysisReq):
     except Exception as e:
         logger.error("Event analysis error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Leverage Simulator Endpoints ─────────────────────────────────────────────
+
+from src.simulator.leverage_sim import (
+    LeverageSimulator,
+    TransactionCostModel,
+    run_leverage_sweep,
+    run_full_simulation,
+    VIX_IV_REGIME_LABELS,
+    get_repo_rate_series,
+)
+from config.settings import (
+    LEVERAGE_DEFAULT_CAPITAL,
+    LEVERAGE_RATIOS_DEFAULT,
+    LEVERAGE_CALL_OTM_PCTS_DEFAULT,
+    LEVERAGE_PUT_OTM_PCT_DEFAULT,
+    LEVERAGE_LIQUID_FUND_SPREAD,
+    LEVERAGE_DIVIDEND_YIELD,
+)
+
+
+class LeverageSimulateReq(BaseModel):
+    leverage_ratio: float = Field(2.0, ge=0.1, le=10.0, description="Notional / capital")
+    call_otm_pct: float = Field(0.05, ge=0.0, le=0.50, description="Call strike OTM fraction (0 = no calls)")
+    put_otm_pct: float = Field(0.20, ge=0.0, le=0.50, description="Put strike OTM fraction (0 = no puts)")
+    initial_capital: float = Field(3_000_000.0, gt=0)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    liquid_fund_spread: float = Field(0.005, ge=0.0, le=0.05)
+    dividend_yield: float = Field(0.013, ge=0.0, le=0.10)
+    # Realism controls
+    use_vol_skew: bool = Field(True, description="Apply Nifty put skew premium (+15%) and call discount (-10%)")
+    enable_transaction_costs: bool = Field(True, description="Include NSE F&O STT, brokerage, exchange charges")
+    strike_round_increment: float = Field(50.0, ge=1.0, le=500.0, description="NSE strike rounding increment (50 for near-month)")
+    margin_call_threshold_pct: float = Field(0.20, ge=0.0, le=1.0, description="Flag margin-call zone if equity < initial × this")
+
+
+class LeverageSweepReq(BaseModel):
+    leverage_ratios: list[float] = Field(default_factory=lambda: LEVERAGE_RATIOS_DEFAULT)
+    call_otm_pcts: list[float] = Field(default_factory=lambda: LEVERAGE_CALL_OTM_PCTS_DEFAULT)
+    put_otm_pct: float = Field(0.20, ge=0.0, le=0.50)
+    initial_capital: float = Field(3_000_000.0, gt=0)
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    liquid_fund_spread: float = Field(0.005, ge=0.0, le=0.05)
+    dividend_yield: float = Field(0.013, ge=0.0, le=0.10)
+    # Realism controls
+    use_vol_skew: bool = Field(True)
+    enable_transaction_costs: bool = Field(True)
+    strike_round_increment: float = Field(50.0, ge=1.0, le=500.0)
+    margin_call_threshold_pct: float = Field(0.20, ge=0.0, le=1.0)
+
+
+@app.post("/api/leverage/simulate", tags=["Leverage"])
+async def api_leverage_simulate(req: LeverageSimulateReq):
+    """
+    Run a single leveraged Nifty futures simulation.
+
+    Returns full equity curve, monthly P&L breakdown, and all key metrics.
+    Covered calls are sold monthly at the chosen OTM%; protective puts are
+    bought quarterly at 20% OTM (LEAPS proxy). Capital earns liquid-fund rate.
+    Carry cost is modelled from the historical RBI repo rate schedule.
+    """
+    try:
+        df = _get_df()
+        result = run_full_simulation(
+            df=df,
+            leverage_ratio=req.leverage_ratio,
+            call_otm_pct=req.call_otm_pct,
+            put_otm_pct=req.put_otm_pct,
+            initial_capital=req.initial_capital,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            liquid_fund_spread=req.liquid_fund_spread,
+            dividend_yield=req.dividend_yield,
+            use_vol_skew=req.use_vol_skew,
+            enable_transaction_costs=req.enable_transaction_costs,
+            strike_round_increment=req.strike_round_increment,
+            margin_call_threshold_pct=req.margin_call_threshold_pct,
+        )
+        # Determine if VIX data coverage is partial (warn in response)
+        vix_warning = None
+        if result.vix_data_coverage_pct < 50:
+            vix_warning = (
+                f"VIX data covers only {result.vix_data_coverage_pct:.0f}% of the simulation period. "
+                "Options pricing falls back to 'normal' IV regime (17%) for missing dates. "
+                "Re-run 'python main.py download' to extend VIX coverage."
+            )
+
+        # Downsample equity curve for response (keep ≤ 2000 points)
+        ec = result.equity_curve
+        if len(ec) > 2000:
+            step = max(1, len(ec) // 2000)
+            ec = ec.iloc[::step]
+
+        return {
+            "leverage_ratio": result.leverage_ratio,
+            "call_otm_pct": result.call_otm_pct,
+            "put_otm_pct": result.put_otm_pct,
+            "initial_capital": result.initial_capital,
+            "start_date": result.start_date,
+            "end_date": result.end_date,
+            "final_capital": result.final_capital,
+            "total_return_pct": result.total_return_pct,
+            "annual_return_pct": result.annual_return_pct,
+            "max_drawdown_pct": result.max_drawdown_pct,
+            "sharpe_ratio": result.sharpe_ratio,
+            "sortino_ratio": result.sortino_ratio,
+            "calmar_ratio": result.calmar_ratio,
+            "total_carry_cost_pct": result.total_carry_cost_pct,
+            "total_put_cost_pct": result.total_put_cost_pct,
+            "total_call_income_pct": result.total_call_income_pct,
+            "total_liquid_fund_income_pct": result.total_liquid_fund_income_pct,
+            "total_futures_pnl_pct": result.total_futures_pnl_pct,
+            "put_payout_events": result.put_payout_events,
+            "call_cap_events": result.call_cap_events,
+            "vix_data_coverage_pct": result.vix_data_coverage_pct,
+            "vix_warning": vix_warning,
+            "margin_call_triggered": result.margin_call_triggered,
+            "margin_call_date": result.margin_call_date,
+            "total_transaction_cost_pct": result.total_transaction_cost_pct,
+            "equity_curve": _safe_records(ec),
+            "monthly_breakdown": _safe_records(result.monthly_breakdown),
+        }
+    except Exception as e:
+        logger.error("Leverage simulate error: %s\n%s", e, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/leverage/sweep", tags=["Leverage"])
+async def api_leverage_sweep(req: LeverageSweepReq):
+    """
+    Run a parameter sweep across leverage ratios × covered-call OTM strikes.
+
+    Returns a flat list of summary rows (no equity curves) suitable for
+    rendering as a 2D heatmap (leverage × CC-strike → metric).
+    Protective puts at put_otm_pct are applied to every combination.
+    """
+    try:
+        if len(req.leverage_ratios) > 10:
+            raise HTTPException(status_code=400, detail="Max 10 leverage ratios per sweep")
+        if len(req.call_otm_pcts) > 8:
+            raise HTTPException(status_code=400, detail="Max 8 call OTM values per sweep")
+
+        df = _get_df()
+        rows = run_leverage_sweep(
+            df=df,
+            leverage_ratios=req.leverage_ratios,
+            call_otm_pcts=req.call_otm_pcts,
+            put_otm_pct=req.put_otm_pct,
+            initial_capital=req.initial_capital,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            liquid_fund_spread=req.liquid_fund_spread,
+            dividend_yield=req.dividend_yield,
+            use_vol_skew=req.use_vol_skew,
+            enable_transaction_costs=req.enable_transaction_costs,
+            strike_round_increment=req.strike_round_increment,
+            margin_call_threshold_pct=req.margin_call_threshold_pct,
+        )
+        return {
+            "count": len(rows),
+            "leverage_ratios": req.leverage_ratios,
+            "call_otm_pcts": req.call_otm_pcts,
+            "put_otm_pct": req.put_otm_pct,
+            "results": [
+                {
+                    "leverage_ratio": r.leverage_ratio,
+                    "call_otm_pct": r.call_otm_pct,
+                    "final_capital": r.final_capital,
+                    "total_return_pct": r.total_return_pct,
+                    "annual_return_pct": r.annual_return_pct,
+                    "max_drawdown_pct": r.max_drawdown_pct,
+                    "sharpe_ratio": r.sharpe_ratio,
+                    "sortino_ratio": r.sortino_ratio,
+                    "calmar_ratio": r.calmar_ratio,
+                    "total_carry_cost_pct": r.total_carry_cost_pct,
+                    "total_put_cost_pct": r.total_put_cost_pct,
+                    "total_call_income_pct": r.total_call_income_pct,
+                    "total_liquid_fund_income_pct": r.total_liquid_fund_income_pct,
+                    "put_payout_events": r.put_payout_events,
+                    "call_cap_events": r.call_cap_events,
+                    "margin_call_triggered": r.margin_call_triggered,
+                    "total_transaction_cost_pct": r.total_transaction_cost_pct,
+                }
+                for r in rows
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Leverage sweep error: %s\n%s", e, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/leverage/assumptions", tags=["Leverage"])
+async def api_leverage_assumptions():
+    """
+    Return the model assumptions used by the leverage simulator.
+
+    Includes the VIX → implied-vol regime table and a sample of the
+    RBI repo rate history used for carry cost and liquid fund income.
+    """
+    try:
+        from src.simulator.leverage_sim import _RBI_REPO_RATES
+        # Build repo rate records for the chart
+        repo_records = [
+            {"date": date_str, "repo_rate_pct": rate}
+            for date_str, rate in _RBI_REPO_RATES
+        ]
+        return {
+            "vix_iv_regimes": VIX_IV_REGIME_LABELS,
+            "rbi_repo_rates": repo_records,
+            "model_notes": [
+                "All capital is deployed as futures margin and simultaneously earns liquid-fund rate (repo − 0.5%).",
+                "Futures carry cost = (repo_rate − dividend_yield) / 252 per day on notional.",
+                "Covered calls: monthly (every 21 trading days), settled at each roll date.",
+                "Protective puts: quarterly rolling (every 63 trading days) at chosen OTM%.",
+                "Vol skew: put IV ≈ ATM IV × 1.15, call IV ≈ ATM IV × 0.90 (Nifty historical skew).",
+                "Transaction costs: STT (0.01% futures sell, 0.05% option premium), ₹20 brokerage+GST, exchange charges.",
+                "Strikes rounded to nearest ₹50 increment (valid NSE near-month option strikes).",
+                "Black-Scholes pricing uses VIX-regime IV buckets with skew adjustments.",
+                "Margin call zone flag: triggers when equity < initial_capital × margin_call_threshold (default 20%).",
+                "Post-2016 dates where VIX data is absent use IV = 17% (normal regime fallback).",
+                "Dividend yield fixed at 1.3% p.a. (Nifty 50 historical average).",
+                "Simulation is in capital units — lot size changes do not affect results.",
+            ],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/leverage/valuation-context", tags=["Leverage"])
+async def api_leverage_valuation_context():
+    """
+    Return current Nifty valuation context (PE, PB, DivYield) with
+    leverage insights for the Leverage simulator page.
+
+    Scrapes today's values from nifty-pe-ratio.com and enriches with:
+    - PE/PB/DivYield zone classifications (Undervalued → Overvalued)
+    - Equity Risk Premium (earnings yield minus risk-free rate)
+    - Recommended maximum leverage based on PE zone
+    - Historical PE statistics if local data available
+
+    Returns HTTP 503 if the source site is unreachable and no cached
+    data exists.
+    """
+    try:
+        from src.data.valuation_scraper import get_valuation_context
+        return get_valuation_context()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/valuation/sync", tags=["Leverage"])
+async def api_valuation_sync():
+    """
+    Trigger a sync of the Nifty PE/PB/DivYield CSV (appends today if absent).
+
+    Returns the latest scraped values and total row count.
+    """
+    try:
+        from src.data.valuation_scraper import sync_data
+        df = sync_data()
+        latest = df.iloc[-1]
+        return {
+            "status": "ok",
+            "total_rows": len(df),
+            "latest": {
+                "date": str(latest["Date"].date() if hasattr(latest["Date"], "date") else latest["Date"]),
+                "pe": float(latest["PE"]),
+                "pb": float(latest["PB"]),
+                "div_yield": float(latest["DivYield"]),
+            },
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Retirement Monte Carlo Simulator ─────────────────────────────────────────
+
+class RetirementSimReq(BaseModel):
+    """Request body for the retirement Monte Carlo simulation endpoint."""
+    initial_corpus: float = Field(10_000_000.0, gt=0)
+    equity_pct: float = Field(60.0, ge=0.0, le=100.0)
+    monthly_withdrawal: float = Field(50_000.0, gt=0)
+    inflation_rate_pct: float = Field(6.0, ge=0.0, le=30.0)
+    debt_instrument: str = Field("liquid_fund")
+    future_debt_rate_override: Optional[float] = Field(None, ge=0.0, le=30.0)
+    swp_replenish_years: int = Field(5, ge=1, le=20)
+    emergency_months_threshold: int = Field(12, ge=1, le=120)
+    replenish_mode: str = Field("fill_years", description="fill_years | pct_equity | rebalance")
+    replenish_pct: float = Field(20.0, ge=1.0, le=100.0, description="% used for pct_equity/rebalance modes")
+    total_years: int = Field(30, ge=1, le=50)
+    tax_enabled: bool = Field(True)
+    income_tax_bracket_pct: float = Field(30.0, ge=0.0, le=42.0)
+    n_simulations: int = Field(1000, ge=100, le=5000)
+    random_seed: Optional[int] = Field(None)
+    starting_year: Optional[int] = Field(None, ge=2000, le=2030)
+    compute_swr: bool = Field(True, description="Compute SWR (adds ~3000 sub-sims; uncheck for speed)")
+    compute_tax_drag: bool = Field(True, description="Compute tax drag (adds ~200 sub-sims)")
+    # FIRE mode: multi-phase accumulation before full retirement
+    fire_mode: str = Field("classic", description="classic | coast | barista")
+    phase1_years: int = Field(0, ge=0, le=40, description="Duration of Phase 1 (pre-retirement) in years")
+    barista_monthly_withdrawal: float = Field(20_000.0, ge=0.0, description="Monthly corpus draw during Barista Phase 1 (₹)")
+    monthly_contribution: float = Field(0.0, ge=0.0, description="Monthly contribution to equity during Phase 1 (₹)")
+    phase1_equity_pct: Optional[float] = Field(None, ge=0.0, le=100.0, description="Equity % during Phase 1 (None = same as equity_pct)")
+    # Leverage: replace debt/cash bucket with leveraged Nifty futures position
+    use_leverage: bool = Field(False, description="Replace cash/debt bucket with leveraged Nifty futures. False = classic cash view (default).")
+    leverage_ratio: float = Field(2.0, ge=1.01, le=5.0, description="Notional / own margin capital (1.01–5.0×)")
+    leverage_borrow_rate_pct: float = Field(9.0, ge=0.0, le=30.0, description="Gross annual borrowing rate for leveraged position (%)")
+
+
+class RetirementOptimizeReq(BaseModel):
+    """Request body for the equity% optimization sweep endpoint."""
+    initial_corpus: float = Field(10_000_000.0, gt=0)
+    monthly_withdrawal: float = Field(50_000.0, gt=0)
+    inflation_rate_pct: float = Field(6.0, ge=0.0, le=30.0)
+    debt_instrument: str = Field("liquid_fund")
+    future_debt_rate_override: Optional[float] = Field(None, ge=0.0, le=30.0)
+    swp_replenish_years: int = Field(5, ge=1, le=20)
+    emergency_months_threshold: int = Field(12, ge=1, le=120)
+    total_years: int = Field(30, ge=1, le=50)
+    tax_enabled: bool = Field(True)
+    income_tax_bracket_pct: float = Field(30.0, ge=0.0, le=42.0)
+    equity_pct_range: Optional[list[float]] = Field(None)
+    n_sims_per_point: int = Field(500, ge=100, le=2000)
+    random_seed: Optional[int] = Field(None)
+
+
+@app.post("/api/swp/simulate", tags=["SWP"])
+async def api_retirement_simulate(req: RetirementSimReq):
+    """
+    Run a Monte Carlo retirement simulation using the bucket strategy.
+
+    Returns percentile fan-chart data, survival rates by year,
+    corpus depletion histogram, and summary metrics.
+
+    Note: n_simulations > 2000 is capped at 2000 to keep response time reasonable.
+    """
+    try:
+        from src.simulator.retirement_sim import RetirementParams, run_monte_carlo
+
+        n_sims = min(req.n_simulations, 2000)
+        capped = n_sims < req.n_simulations
+
+        params = RetirementParams(
+            initial_corpus=req.initial_corpus,
+            equity_pct=req.equity_pct,
+            monthly_withdrawal=req.monthly_withdrawal,
+            inflation_rate_pct=req.inflation_rate_pct,
+            debt_instrument=req.debt_instrument,
+            future_debt_rate_override=req.future_debt_rate_override,
+            swp_replenish_years=req.swp_replenish_years,
+            emergency_months_threshold=req.emergency_months_threshold,
+            replenish_mode=req.replenish_mode,
+            replenish_pct=req.replenish_pct,
+            total_years=req.total_years,
+            tax_enabled=req.tax_enabled,
+            income_tax_bracket_pct=req.income_tax_bracket_pct,
+            n_simulations=n_sims,
+            random_seed=req.random_seed,
+            starting_year=req.starting_year,
+            fire_mode=req.fire_mode,
+            phase1_years=req.phase1_years,
+            barista_monthly_withdrawal=req.barista_monthly_withdrawal,
+            monthly_contribution=req.monthly_contribution,
+            phase1_equity_pct=req.phase1_equity_pct,
+            use_leverage=req.use_leverage,
+            leverage_ratio=req.leverage_ratio,
+            leverage_borrow_rate_pct=req.leverage_borrow_rate_pct,
+        )
+
+        result = run_monte_carlo(
+            params, _get_df(),
+            compute_swr=req.compute_swr,
+            compute_tax_drag=req.compute_tax_drag,
+        )
+
+        return {
+            "n_simulations": result.n_simulations,
+            "n_survived": result.n_survived,
+            "capped_at_2000": capped,
+            "portfolio_percentiles": result.portfolio_percentiles,
+            "survival_by_year": result.survival_by_year,
+            "ruin_histogram": result.ruin_histogram,
+            "summary": {
+                "survival_20yr_pct": result.survival_20yr_pct,
+                "survival_30yr_pct": result.survival_30yr_pct,
+                "median_final_corpus": result.median_final_corpus,
+                "mean_final_corpus": result.mean_final_corpus,
+                "safe_withdrawal_rate_pct": result.safe_withdrawal_rate_pct,
+                "actual_withdrawal_rate_pct": round(params.monthly_withdrawal * 12 / params.initial_corpus * 100, 2),
+                "debt_months_coverage": round(
+                    params.initial_corpus * (1.0 - params.equity_pct / 100.0) / params.monthly_withdrawal, 1
+                ),
+                "median_total_tax": result.median_total_tax,
+                "tax_drag_pct": result.tax_drag_pct,
+                "median_emergency_count": result.median_emergency_count,
+                "median_ruin_year": result.median_ruin_year,
+                "corpus_needed_at_swr": (
+                    round(params.monthly_withdrawal * 12 / result.safe_withdrawal_rate_pct * 100, 0)
+                    if result.safe_withdrawal_rate_pct and result.safe_withdrawal_rate_pct > 0 else None
+                ),
+                "portfolio_cagr_pct": (
+                    round(((result.median_final_corpus / params.initial_corpus)
+                           ** (1.0 / params.total_years) - 1.0) * 100, 2)
+                    if result.median_final_corpus > 0 else None
+                ),
+                # Leverage settings
+                "use_leverage": params.use_leverage,
+                "leverage_ratio": params.leverage_ratio if params.use_leverage else None,
+                "leverage_borrow_rate_pct": params.leverage_borrow_rate_pct if params.use_leverage else None,
+                "effective_nifty_exposure_pct": (
+                    round(params.equity_pct + (100.0 - params.equity_pct) * params.leverage_ratio, 1)
+                    if params.use_leverage else params.equity_pct
+                ),
+                # FIRE phase metrics
+                "fire_mode": params.fire_mode,
+                "phase1_years": params.phase1_years,
+                "corpus_at_phase2_start_median": result.corpus_at_phase2_start_median,
+                "corpus_at_phase2_start_p10": result.corpus_at_phase2_start_p10,
+                "corpus_at_phase2_start_p90": result.corpus_at_phase2_start_p90,
+                "phase2_survival_pct": result.phase2_survival_pct,
+                "expected_phase2_starting_withdrawal": result.expected_phase2_starting_withdrawal,
+                "phase1_portfolio_cagr_pct": result.phase1_portfolio_cagr_pct,
+                "net_phase1_contribution_total": result.net_phase1_contribution_total,
+            },
+            "sequence_risk_data": result.sequence_risk_data[:200],
+            "yearly_stats": result.yearly_stats,
+            "actual_start_year": result.actual_start_year,
+            "debt_medians": result.debt_medians,
+            "params": {
+                "initial_corpus": params.initial_corpus,
+                "equity_pct": params.equity_pct,
+                "monthly_withdrawal": params.monthly_withdrawal,
+                "inflation_rate_pct": params.inflation_rate_pct,
+                "debt_instrument": params.debt_instrument,
+                "total_years": params.total_years,
+                "tax_enabled": params.tax_enabled,
+            },
+        }
+    except Exception as exc:
+        logger.error("Retirement simulation error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/swp/optimize", tags=["SWP"])
+async def api_retirement_optimize(req: RetirementOptimizeReq):
+    """
+    Run an equity% optimization sweep to find the allocation that maximises
+    survival probability, median corpus, or a balanced score.
+
+    Sweeps equity_pct from 10 to 90 (step 5) unless equity_pct_range is provided.
+    """
+    try:
+        from src.simulator.retirement_sim import RetirementParams, run_optimization_sweep
+
+        base_params = RetirementParams(
+            initial_corpus=req.initial_corpus,
+            equity_pct=50.0,
+            monthly_withdrawal=req.monthly_withdrawal,
+            inflation_rate_pct=req.inflation_rate_pct,
+            debt_instrument=req.debt_instrument,
+            future_debt_rate_override=req.future_debt_rate_override,
+            swp_replenish_years=req.swp_replenish_years,
+            emergency_months_threshold=req.emergency_months_threshold,
+            total_years=req.total_years,
+            tax_enabled=req.tax_enabled,
+            income_tax_bracket_pct=req.income_tax_bracket_pct,
+            n_simulations=req.n_sims_per_point,
+            random_seed=req.random_seed,
+        )
+
+        result = run_optimization_sweep(
+            base_params, _get_df(),
+            equity_pct_range=req.equity_pct_range,
+            n_sims_per_point=req.n_sims_per_point,
+        )
+
+        def _point_to_dict(p):
+            return {
+                "equity_pct": p.equity_pct,
+                "debt_pct": round(100.0 - p.equity_pct, 1),
+                "survival_30yr_pct": p.survival_30yr_pct,
+                "median_final_corpus": p.median_final_corpus,
+                "safe_withdrawal_rate_pct": p.safe_withdrawal_rate_pct,
+                "tax_drag_pct": p.tax_drag_pct,
+                "median_emergency_count": p.median_emergency_count,
+            }
+
+        return {
+            "points": [_point_to_dict(p) for p in result.points],
+            "optimal_survival": _point_to_dict(result.optimal_survival),
+            "optimal_median_corpus": _point_to_dict(result.optimal_median_corpus),
+            "optimal_balanced": _point_to_dict(result.optimal_balanced),
+        }
+    except Exception as exc:
+        logger.error("Retirement optimization error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/swp/debt-rates", tags=["SWP"])
+async def api_retirement_debt_rates():
+    """
+    Return historical debt return rates for all three instrument types,
+    indexed by RBI rate-change events.  Used by the UI chart.
+    """
+    try:
+        from src.data.debt_rates import get_historical_rates_df, list_instruments
+
+        instruments = ["liquid_fund", "short_term_debt", "bank_fd"]
+        result = {}
+        for inst in instruments:
+            df = get_historical_rates_df(inst)
+            result[inst] = {
+                "dates": df["date"].dt.strftime("%Y-%m-%d").tolist(),
+                "repo_rates": df["repo_rate_pct"].tolist(),
+                "instrument_returns": df["instrument_return_pct"].tolist(),
+            }
+
+        return {
+            "instruments": result,
+            "metadata": list_instruments(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Crypto Leverage Simulator Endpoints ─────────────────────────────────────
+
+class CryptoSimReq(BaseModel):
+    crypto_id: str = "bitcoin"
+    leverage_ratio: float = 2.0
+    borrow_rate_pct: float = 10.0
+    initial_capital: float = 1_000_000.0
+    horizon_years: int = 10
+    n_simulations: int = 1000
+    block_size_months: int = 6
+    liquidation_threshold_pct: float = 0.0
+
+
+class CryptoSweepReq(BaseModel):
+    crypto_id: str = "bitcoin"
+    borrow_rate_pct: float = 10.0
+    initial_capital: float = 1_000_000.0
+    horizon_years: int = 10
+    n_simulations: int = 1000
+    block_size_months: int = 6
+    liquidation_threshold_pct: float = 0.0
+    leverage_ratios: list[float] = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0]
+
+
+@app.get("/api/crypto/available", tags=["Crypto"])
+async def api_crypto_available():
+    """
+    Returns available crypto ids, ticker identifiers, and date ranges.
+    """
+    try:
+        from config.settings import CRYPTO_TICKERS, CRYPTO_RAW_DIR
+        import pandas as pd
+        
+        available = []
+        for cid, ticker in CRYPTO_TICKERS.items():
+            csv_path = CRYPTO_RAW_DIR / f"{cid}.csv"
+            date_range = "No data"
+            rows = 0
+            if csv_path.exists():
+                try:
+                    df = pd.read_csv(csv_path, usecols=["Date"])
+                    if not df.empty:
+                        rows = len(df)
+                        start_date = str(pd.to_datetime(df["Date"].iloc[0]).date())
+                        end_date = str(pd.to_datetime(df["Date"].iloc[-1]).date())
+                        date_range = f"{start_date} to {end_date}"
+                except Exception:
+                    pass
+            available.append({
+                "id": cid,
+                "ticker": ticker,
+                "date_range": date_range,
+                "rows_count": rows,
+            })
+        return {"cryptos": available}
+    except Exception as exc:
+        logger.error("Error getting available cryptos: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/crypto/sync", tags=["Crypto"])
+async def api_crypto_sync():
+    """
+    Sync all crypto data from Yahoo Finance: check the last data point in each CSV,
+    fetch new data since then, and append.
+    """
+    try:
+        from src.data.crypto_downloader import sync_all_crypto
+        result = sync_all_crypto()
+        total_rows_added = sum(info.get("rows_added", 0) for info in result.values())
+        return {
+            "status": "ok",
+            "rows_added": total_rows_added,
+            "details": result
+        }
+    except Exception as exc:
+        logger.error("Crypto sync error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/api/crypto/{crypto_id}/chart", tags=["Crypto"])
+async def api_crypto_chart(crypto_id: str):
+    """
+    Returns chart data for a specific crypto.
+    """
+    try:
+        from config.settings import CRYPTO_RAW_DIR
+        import pandas as pd
+        csv_path = CRYPTO_RAW_DIR / f"{crypto_id.strip()}.csv"
+        print(f"DEBUG: Checking path: {csv_path}, exists: {csv_path.exists()}")
+        if not csv_path.exists():
+            raise HTTPException(status_code=404, detail=f"Crypto data not found for {crypto_id}")
+        
+        df = pd.read_csv(csv_path)
+        if df.empty:
+            raise HTTPException(status_code=404, detail="Crypto data is empty")
+        
+        # Format for lightweight UI chart, maybe downsample slightly if needed
+        # Just return daily Close
+        dates = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d").tolist()
+        prices = df["Close"].tolist()
+        
+        return {
+            "dates": dates,
+            "prices": prices,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting crypto chart: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/crypto/simulate", tags=["Crypto"])
+async def api_crypto_simulate(req: CryptoSimReq):
+    """
+    Run Monte Carlo simulations for a single crypto leverage set of parameters.
+    """
+    try:
+        from src.simulator.crypto_leverage_sim import CryptoLeverageParams, run_monte_carlo_crypto
+        
+        params = CryptoLeverageParams(
+            crypto_id=req.crypto_id,
+            leverage_ratio=req.leverage_ratio,
+            borrow_rate_pct=req.borrow_rate_pct,
+            initial_capital=req.initial_capital,
+            horizon_years=req.horizon_years,
+            n_simulations=req.n_simulations,
+            block_size_months=req.block_size_months,
+            liquidation_threshold_pct=req.liquidation_threshold_pct,
+        )
+        
+        result = run_monte_carlo_crypto(params)
+        return result.model_dump()
+    except Exception as exc:
+        logger.error("Crypto simulation error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/crypto/sweep", tags=["Crypto"])
+async def api_crypto_sweep(req: CryptoSweepReq):
+    """
+    Run leverage sweeps for a given crypto.
+    """
+    try:
+        from src.simulator.crypto_leverage_sim import CryptoLeverageParams, run_crypto_sweep
+        
+        params_base = CryptoLeverageParams(
+            crypto_id=req.crypto_id,
+            leverage_ratio=1.0, # dummy value, overridden by sweep
+            borrow_rate_pct=req.borrow_rate_pct,
+            initial_capital=req.initial_capital,
+            horizon_years=req.horizon_years,
+            n_simulations=req.n_simulations,
+            block_size_months=req.block_size_months,
+            liquidation_threshold_pct=req.liquidation_threshold_pct,
+        )
+        
+        sweep_points = run_crypto_sweep(params_base, leverage_ratios=req.leverage_ratios)
+        return [pt.model_dump() for pt in sweep_points]
+    except Exception as exc:
+        logger.error("Crypto sweep error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))

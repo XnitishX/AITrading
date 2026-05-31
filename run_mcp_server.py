@@ -12,11 +12,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import asyncio
-from src.mcp_server import AITradingServer
+from src.mcp_server import create_mcp_server
 
 
-async def main():
+def main():
     """Run the MCP server."""
     print("\n" + "="*60)
     print("🚀 AITrading MCP Server")
@@ -25,13 +24,13 @@ async def main():
     print("\n📖 Setup guide: See MCP_SERVER_SETUP.md")
     print("\n" + "="*60 + "\n")
     
-    server = AITradingServer()
+    server = create_mcp_server()
     try:
-        await server.run()
+        server.run()
     except KeyboardInterrupt:
         print("\n\n✓ Server stopped.")
         sys.exit(0)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

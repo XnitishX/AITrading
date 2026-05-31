@@ -88,6 +88,9 @@ class BacktestResult:
     avg_mae_pct: float = 0.0      # Average MAE across trades (%)
     avg_mfe_pct: float = 0.0      # Average MFE across trades (%)
     avg_r_multiple: float = 0.0   # Average R-multiple across trades
+    max_consecutive_wins: int = 0 # Max consecutive winning trades
+    max_consecutive_win_days: int = 0 # Max consecutive positive-return days
+    max_consecutive_loss_days: int = 0 # Max consecutive negative-return days
     equity_curve: pd.DataFrame = field(default_factory=pd.DataFrame)  # columns: Date, equity, drawdown, rolling_sharpe
     trades: list[Trade] = field(default_factory=list)
 
@@ -132,6 +135,9 @@ class BacktestResult:
             f"  Max DD Duration   : {self.max_drawdown_duration} bars",
             f"  Avg Trade Duration: {self.avg_trade_duration:.1f} bars",
             f"  Max Consec Losses : {self.max_consecutive_losses}",
+            f"  Max Consec Wins   : {self.max_consecutive_wins}",
+            f"  Max Consec Win Days: {self.max_consecutive_win_days} days",
+            f"  Max Consec Loss Days: {self.max_consecutive_loss_days} days",
             f"  Exposure Time     : {self.exposure_time_pct:.1f}%",
         ]
         return "\n".join(lines)
@@ -155,7 +161,7 @@ SignalFunction = Callable[[int, pd.Series, pd.DataFrame], int]
 @register_strategy(
     "sma_crossover",
     description="Simple Moving Average Crossover (Golden/Death Cross)",
-    param_schema={"fast_window": "Fast SMA period (default: 50, range: 5-100)", "slow_window": "Slow SMA period (default: 200, range: 20-500)"},
+    param_schema={"fast_window": "The shorter lookback period (e.g. 50 days) that reacts quicker to price action. (default: 50, range: 5-100)", "slow_window": "The longer lookback period (e.g. 200 days) representing the main trend constraint. (default: 200, range: 20-500)"},
 )
 def sma_crossover_strategy(
     fast_window: int = 50,
@@ -202,7 +208,7 @@ def sma_crossover_strategy(
 @register_strategy(
     "rsi_mean_reversion",
     description="RSI Mean Reversion - buy oversold, sell overbought",
-    param_schema={"oversold": "Buy threshold (default: 30, range: 10-45)", "overbought": "Sell threshold (default: 70, range: 55-90)"},
+    param_schema={"oversold": "Relative Strength Index (RSI) level below which the asset is considered historically underpriced and triggers a buy signal. (default: 30, range: 10-45)", "overbought": "RSI level above which the asset is considered historically overpriced and triggers a sell signal. (default: 70, range: 55-90)"},
 )
 def rsi_mean_reversion_strategy(
     rsi_col: str = "rsi_14",
@@ -257,7 +263,7 @@ def rsi_mean_reversion_strategy(
 @register_strategy(
     "macd_crossover",
     description="MACD Signal Line Crossover",
-    param_schema={"fast_ema": "Fast EMA period (default: 12)", "slow_ema": "Slow EMA period (default: 26)", "signal_period": "Signal line period (default: 9)"},
+    param_schema={"fast_ema": "Number of periods for the fast Exponential Moving Average component of MACD. (default: 12)", "slow_ema": "Number of periods for the slower Exponential Moving Average component. (default: 26)", "signal_period": "Smoothing period for the MACD Signal Line used for trigger crossovers. (default: 9)"},
 )
 def macd_crossover_strategy(
     fast_ema: int = 12,
@@ -304,7 +310,7 @@ def macd_crossover_strategy(
 @register_strategy(
     "bollinger_band",
     description="Bollinger Band Mean Reversion",
-    param_schema={"window": "SMA period (default: 20)", "num_std": "Number of standard deviations (default: 2.0)"},
+    param_schema={"window": "Lookback period for the main SMA center line upon which volatility bands are drawn. (default: 20)", "num_std": "Standard deviation multiplier width that determines how far apart the upper and lower bands are placed. (default: 2.0)"},
 )
 def bollinger_band_strategy(
     window: int = 20,
@@ -352,7 +358,7 @@ def bollinger_band_strategy(
 @register_strategy(
     "atr_breakout",
     description="ATR Breakout / Chandelier-style",
-    param_schema={"sma_window": "SMA period (default: 20)", "atr_period": "ATR period (default: 14)", "atr_multiplier": "ATR multiplier (default: 1.5)"},
+    param_schema={"sma_window": "Period for the simple moving average baseline defining the general trend direction. (default: 20)", "atr_period": "Lookback period for calculating Average True Range (market volatility). (default: 14)", "atr_multiplier": "Scaling factor applied to ATR to place entry/exit breakout lines outside normal noise range. (default: 1.5)"},
 )
 def atr_breakout_strategy(
     sma_window: int = 20,
@@ -413,7 +419,7 @@ def atr_breakout_strategy(
 @register_strategy(
     "vix_regime",
     description="VIX Regime Filter - long in calm markets, flat in fearful",
-    param_schema={"buy_below": "VIX threshold to go long (default: 15)", "sell_above": "VIX threshold to exit (default: 25)"},
+    param_schema={"buy_below": "Volatility index threshold. Will only stay long if VIX trades safely beneath this panic boundary. (default: 15)", "sell_above": "Immediate liquidation trigger when VIX rockets above an extreme risk threshold. (default: 25)"},
 )
 def vix_regime_strategy(
     vix_col: str = "vix_close",
@@ -445,7 +451,7 @@ def vix_regime_strategy(
             _cache.clear()
 
         # Precompute VIX values once
-        if "vix" not in _cache or len(_cache["vix"]) != len(df):
+        if "vix" not in _cache or (_cache["vix"] is not None and len(_cache["vix"]) != len(df)):
             if vix_col in df.columns:
                 _cache["vix"] = df[vix_col].values
             else:
@@ -483,7 +489,7 @@ def vix_regime_strategy(
 @register_strategy(
     "ema_crossover",
     description="Exponential Moving Average Crossover",
-    param_schema={"fast_span": "Fast EMA span (default: 12)", "slow_span": "Slow EMA span (default: 26)"},
+    param_schema={"fast_span": "Near-term momentum gauge, tracks recent prices more heavily. (default: 12)", "slow_span": "Longer-baseline trend gauge holding structural direction. (default: 26)"},
 )
 def ema_crossover_strategy(
     fast_span: int = 12,
@@ -524,7 +530,7 @@ def ema_crossover_strategy(
 @register_strategy(
     "stochastic_oscillator",
     description="Stochastic Oscillator %K/%D Crossover",
-    param_schema={"k_period": "%K period (default: 14)", "d_period": "%D smoothing (default: 3)", "oversold": "Oversold level (default: 20)", "overbought": "Overbought level (default: 80)"},
+    param_schema={"k_period": "Lookback to calculate the %K base oscillator representing current close vs range history. (default: 14)", "d_period": "Smoothing average on the %K line to generate the secondary %D signal line. (default: 3)", "oversold": "Level beneath which the momentum is deeply oversold (buy potential). (default: 20)", "overbought": "Level above which the momentum reveals overbought exhaustion (sell potential). (default: 80)"},
 )
 def stochastic_oscillator_strategy(
     k_period: int = 14,
@@ -583,7 +589,7 @@ def stochastic_oscillator_strategy(
 @register_strategy(
     "mean_reversion_zscore",
     description="Z-Score Mean Reversion",
-    param_schema={"lookback": "Lookback period (default: 20)", "entry_z": "Entry z-score (default: -2.0)", "exit_z": "Exit z-score (default: 0.0)"},
+    param_schema={"lookback": "Rolling period used to calculate the mean and standard deviation. (default: 20)", "entry_z": "Standard deviations threshold from the mean to enter a contrarian position. (default: -2.0)", "exit_z": "Z-score target to close the trade, typically the mean. (default: 0.0)"},
 )
 def mean_reversion_zscore_strategy(
     lookback: int = 20,
@@ -656,7 +662,7 @@ def mean_reversion_zscore_strategy(
 @register_strategy(
     "macd_histogram",
     description="MACD Histogram Reversal",
-    param_schema={"fast_ema": "Fast EMA period (default: 12)", "slow_ema": "Slow EMA period (default: 26)", "signal_period": "Signal line period (default: 9)"},
+    param_schema={"fast_ema": "Fast EMA period applied for generating MACD. (default: 12)", "slow_ema": "Slow EMA component applied for calculating the MACD line. (default: 26)", "signal_period": "Lookback to smooth the differential and form the signal line, tracking momentum deceleration. (default: 9)"},
 )
 def macd_histogram_strategy(
     fast_ema: int = 12,
@@ -706,7 +712,7 @@ def macd_histogram_strategy(
 @register_strategy(
     "composite_sniper",
     description="Multi-factor Composite (trend + RSI + Bollinger + VIX)",
-    param_schema={"sma_period": "Trend SMA (default: 50)", "rsi_period": "RSI period (default: 14)", "rsi_oversold": "RSI oversold (default: 35)", "rsi_overbought": "RSI overbought (default: 65)", "vix_calm_threshold": "VIX calm threshold (default: 20)", "bb_window": "Bollinger window (default: 20)", "bb_num_std": "Bollinger std devs (default: 2.0)"},
+    param_schema={"sma_period": "Primary trend confirmation moving average. (default: 50)", "rsi_period": "Lookback to calculate RSI momentum. (default: 14)", "rsi_oversold": "Level indicating an actionable dip within the primary uptrend. (default: 35)", "rsi_overbought": "Level indicating overheating where profits should be secured. (default: 65)", "vix_calm_threshold": "Maximum VIX level permitted to enter new long positions. (default: 20)", "bb_window": "Bollinger Bands width baseline for measuring statistical value deviation. (default: 20)", "bb_num_std": "Standard deviations to define extreme statistical cheapness for the lower band. (default: 2.0)"},
 )
 def composite_sniper_strategy(
     sma_period: int = 50,
@@ -1179,15 +1185,40 @@ class Backtester:
         else:
             max_dd_dur = 0
 
-        # Max consecutive losses
+        # Max consecutive trade wins and losses
         max_consec_losses = 0
-        current_streak = 0
+        max_consec_wins = 0
+        current_loss_streak = 0
+        current_win_streak = 0
         for t in self.trades:
-            if t.pnl is not None and t.pnl <= 0:
-                current_streak += 1
-                max_consec_losses = max(max_consec_losses, current_streak)
+            if t.pnl is not None:
+                if t.pnl <= 0:
+                    current_loss_streak += 1
+                    max_consec_losses = max(max_consec_losses, current_loss_streak)
+                    current_win_streak = 0
+                else:
+                    current_win_streak += 1
+                    max_consec_wins = max(max_consec_wins, current_win_streak)
+                    current_loss_streak = 0
+
+        # Daily equity return streaks
+        daily_rets = eq["equity"].pct_change().fillna(0.0).values
+        max_consec_win_days = 0
+        max_consec_loss_days = 0
+        curr_win_days = 0
+        curr_loss_days = 0
+        for r in daily_rets:
+            if r > 0:
+                curr_win_days += 1
+                max_consec_win_days = max(max_consec_win_days, curr_win_days)
+                curr_loss_days = 0
+            elif r < 0:
+                curr_loss_days += 1
+                max_consec_loss_days = max(max_consec_loss_days, curr_loss_days)
+                curr_win_days = 0
             else:
-                current_streak = 0
+                curr_win_days = 0
+                curr_loss_days = 0
 
         # Risk-reward ratio: avg win / |avg loss|
         avg_win = (sum(t.pnl for t in winners) / len(winners)) if winners else 0.0
@@ -1256,6 +1287,9 @@ class Backtester:
             avg_mae_pct=avg_mae,
             avg_mfe_pct=avg_mfe,
             avg_r_multiple=avg_r,
+            max_consecutive_wins=max_consec_wins,
+            max_consecutive_win_days=max_consec_win_days,
+            max_consecutive_loss_days=max_consec_loss_days,
             equity_curve=eq[["Date", "equity", "drawdown", "rolling_sharpe", "benchmark_equity"]],
             trades=self.trades,
         )

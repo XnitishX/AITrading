@@ -15,11 +15,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
+CRYPTO_RAW_DIR = RAW_DATA_DIR / "crypto"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 LOG_DIR = PROJECT_ROOT / "logs"
 
 # Create directories if they don't exist
-for d in [RAW_DATA_DIR, PROCESSED_DATA_DIR, OUTPUT_DIR, LOG_DIR]:
+for d in [RAW_DATA_DIR, CRYPTO_RAW_DIR, PROCESSED_DATA_DIR, OUTPUT_DIR, LOG_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 
@@ -141,3 +142,50 @@ CONFIDENCE_LEVELS = _config.confidence_levels
 
 LOG_LEVEL = _config.log_level
 LOG_FORMAT = "%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s"
+
+# ── Leverage Simulator Defaults ───────────────────────────────────────────────
+LEVERAGE_DEFAULT_CAPITAL = 3_000_000        # 30 lakh
+LEVERAGE_RATIOS_DEFAULT = [1.0, 1.5, 2.0, 2.5, 3.0]
+LEVERAGE_CALL_OTM_PCTS_DEFAULT = [0.0, 0.025, 0.05, 0.075]
+LEVERAGE_PUT_OTM_PCT_DEFAULT = 0.20         # 20% OTM quarterly rolling put
+LEVERAGE_LIQUID_FUND_SPREAD = 0.005         # 50 bps below repo rate
+LEVERAGE_DIVIDEND_YIELD = 0.013             # Nifty 50 historical average ~1.3%
+LEVERAGE_USE_VOL_SKEW = True                # Apply Nifty put-skew premium on option pricing
+LEVERAGE_ENABLE_TRANSACTION_COSTS = True    # Include NSE F&O STT, brokerage, exchange charges
+LEVERAGE_STRIKE_ROUND_INCREMENT = 50.0      # Nearest valid NSE near-month strike (₹50)
+LEVERAGE_MARGIN_CALL_THRESHOLD_PCT = 0.20   # Flag margin-call zone if equity < initial × this
+
+# ── Retirement Monte Carlo Simulator Defaults ─────────────────────────────────
+RETIREMENT_DEFAULT_CORPUS          = 10_000_000    # ₹1 crore starting corpus
+RETIREMENT_DEFAULT_EQUITY_PCT      = 60.0          # 60% equity, 40% debt
+RETIREMENT_DEFAULT_MONTHLY_WD      = 50_000        # ₹50,000 / month starting withdrawal
+RETIREMENT_DEFAULT_HORIZON_YEARS   = 30            # 30-year simulation horizon
+RETIREMENT_DEFAULT_N_SIMS          = 1_000         # Monte Carlo paths
+RETIREMENT_DEFAULT_INFLATION_PCT   = 6.0           # India CPI default (%)
+RETIREMENT_DEFAULT_DEBT_INSTRUMENT = "liquid_fund" # conservative default
+RETIREMENT_DEFAULT_REPLENISH_YEARS = 5             # refill debt every 5 years
+RETIREMENT_EMERGENCY_MONTHS_THRESH = 12            # emergency if debt < 12 months expenses
+RETIREMENT_DEFAULT_TAX_BRACKET_PCT = 30.0          # income slab for debt interest tax
+RETIREMENT_LTCG_EXEMPTION_INR      = 125_000       # ₹1.25 L LTCG annual exemption
+RETIREMENT_LTCG_RATE               = 0.125         # 12.5 % LTCG tax rate (post Aug 2024)
+
+# ── Crypto Leverage MC Simulator Defaults ─────────────────────────────────────
+CRYPTO_TICKERS = {
+    "bitcoin": "BTC-USD",
+    "ethereum": "ETH-USD",
+    "solana": "SOL-USD",
+    "ripple": "XRP-USD",
+    "cardano": "ADA-USD",
+    "dogecoin": "DOGE-USD",
+    "avalanche": "AVAX-USD",
+    "polkadot": "DOT-USD",
+    "tron": "TRX-USD",
+    "chainlink": "LINK-USD",
+    "litecoin": "LTC-USD",
+    "bitcoin-cash": "BCH-USD",
+}
+CRYPTO_DEFAULT_BORROW_RATE_PCT = 10.0
+CRYPTO_DEFAULT_HORIZON_YEARS   = 10
+CRYPTO_DEFAULT_N_SIMS          = 1_000
+CRYPTO_DEFAULT_INITIAL_CAPITAL = 1_000_000   # ₹10 Lakh / $10,000 baseline
+CRYPTO_DEFAULT_BLOCK_SIZE_MONTHS = 6         # 6-month block bootstrap for crypto cycles

@@ -188,6 +188,54 @@ def cmd_sync(args) -> None:
     print("✓  Sync complete.")
 
 
+def cmd_download_valuation(args) -> None:
+    """Download / initialise the Nifty PE/PB/DivYield valuation CSV."""
+    from src.data.valuation_scraper import download_history
+
+    print("📊  Downloading Nifty valuation data (PE/PB/DivYield) …")
+    df = download_history()
+    print(f"   Saved {len(df)} row(s) → data/raw/nifty_pe_pb.csv")
+    print(f"   Latest: PE={df['PE'].iloc[-1]:.2f}  PB={df['PB'].iloc[-1]:.2f}  DivYield={df['DivYield'].iloc[-1]:.2f}%")
+    print("✓  Done.")
+
+
+def cmd_sync_valuation(args) -> None:
+    """Sync Nifty PE/PB/DivYield: append today's value if not already present."""
+    from src.data.valuation_scraper import sync_data as val_sync
+
+    print("🔄  Syncing valuation data from nifty-pe-ratio.com …")
+    df = val_sync()
+    latest = df.iloc[-1]
+    print(
+        f"   Latest: Date={latest['Date'].date() if hasattr(latest['Date'], 'date') else latest['Date']}  "
+        f"PE={latest['PE']:.2f}  PB={latest['PB']:.2f}  DivYield={latest['DivYield']:.2f}%"
+    )
+    print(f"   Total rows: {len(df)}")
+    print("✓  Sync complete.")
+
+
+def cmd_download_crypto(args) -> None:
+    """Download Crypto data (Bitcoin, etc.) from Yahoo Finance."""
+    from src.data.crypto_downloader import download_all_crypto
+
+    print("⬇  Downloading Crypto data from Yahoo Finance …")
+    paths = download_all_crypto()
+    for name, p in paths.items():
+        print(f"   {name:>8}: {p}")
+    print("✓  Crypto download complete.")
+
+
+def cmd_sync_crypto(args) -> None:
+    """Sync Crypto data: fetch only new rows since last download."""
+    from src.data.crypto_downloader import sync_all_crypto
+
+    print("🔄  Syncing Crypto data from Yahoo Finance …")
+    result = sync_all_crypto()
+    for name, info in result.items():
+        print(f"   {name:>8}: {info['status']} (+{info['rows_added']} rows, total: {info['total_rows']}, last: {info['last_date']})")
+    print("✓  Crypto sync complete.")
+
+
 # ── Argument Parser ──────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -203,6 +251,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     # sync
     sub.add_parser("sync", help="Sync latest data from Yahoo Finance (incremental)")
+
+    # download-valuation
+    sub.add_parser("download-valuation", help="Download Nifty PE/PB/DivYield from nifty-pe-ratio.com")
+
+    # sync-valuation
+    sub.add_parser("sync-valuation", help="Sync latest PE/PB/DivYield (append today if absent)")
+
+    # download-crypto
+    sub.add_parser("download-crypto", help="Download Crypto data (Bitcoin, etc.) from Yahoo Finance")
+
+    # sync-crypto
+    sub.add_parser("sync-crypto", help="Sync latest Crypto data (incremental)")
 
     # backtest
     bt = sub.add_parser("backtest", help="Run backtests")
@@ -242,6 +302,10 @@ def main() -> None:
     commands = {
         "download": cmd_download,
         "sync": cmd_sync,
+        "download-valuation": cmd_download_valuation,
+        "sync-valuation": cmd_sync_valuation,
+        "download-crypto": cmd_download_crypto,
+        "sync-crypto": cmd_sync_crypto,
         "backtest": cmd_backtest,
         "predict": cmd_predict,
         "visualise": cmd_visualise,

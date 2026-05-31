@@ -6,6 +6,8 @@ scipy>=1.11
 # ─── Data ───────────────────────────────────────────────────
 yfinance>=0.2
 pyarrow>=14.0           # parquet support
+requests>=2.28          # HTTP scraping (valuation data)
+beautifulsoup4>=4.12    # HTML parsing (nifty-pe-ratio.com)
 
 # ─── Visualisation ──────────────────────────────────────────
 matplotlib>=3.7
